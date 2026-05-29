@@ -4,10 +4,18 @@ import express from "express";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import cookieParser from "cookie-parser";
+import bcrypt from "bcryptjs";
+import crypto from "node:crypto";
 import { answerQuestion, generateExplanation, getLlmConfig, gradeShortAnswer } from "./llmClient.js";
 import { loadQuestions } from "./questionLoader.js";
 
 dotenv.config();
+
+const AUTH_PASSWORD = process.env.AUTH_PASSWORD || "";
+const AUTH_COOKIE_SECRET = process.env.AUTH_COOKIE_SECRET || crypto.randomBytes(32).toString("hex");
+const AUTH_SESSION_DAYS = Number(process.env.AUTH_SESSION_DAYS) || 7;
+const passwordHash = AUTH_PASSWORD ? bcrypt.hashSync(AUTH_PASSWORD, 10) : null;
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
@@ -26,6 +34,13 @@ const pregenState = {
 
 app.use(cors({ origin: process.env.CLIENT_ORIGIN || true }));
 app.use(express.json({ limit: "1mb" }));
+app.use(cookieParser(AUTH_COOKIE_SECRET));
+
+function requireAuth(req, res, next) {
+  if (!passwordHash) return next();
+  if (req.signedCookies.solvemate_auth === "true") return next();
+  res.status(401).json({ error: "authentication required" });
+}
 
 app.get("/api/health", async (_req, res) => {
   const cache = await readExplanationCache();
@@ -42,7 +57,36 @@ app.get("/api/questions", (_req, res) => {
   res.json({ questions });
 });
 
-app.get("/api/questions/:id/explanation", async (req, res, next) => {
+app.get("/api/auth/status", (req, res) => {
+  if (!passwordHash) return res.json({ authenticated: true, enabled: false });
+  res.json({
+    authenticated: req.signedCookies.solvemate_auth === "true",
+    enabled: true,
+  });
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  if (!passwordHash) return res.status(403).json({ error: "authentication is not configured" });
+  const { password } = req.body || {};
+  if (!password) return res.status(400).json({ error: "password is required" });
+  const valid = await bcrypt.compare(password, passwordHash);
+  if (!valid) return res.status(401).json({ error: "invalid password" });
+  res.cookie("solvemate_auth", "true", {
+    signed: true,
+    httpOnly: true,
+    sameSite: "lax",
+    maxAge: AUTH_SESSION_DAYS * 24 * 60 * 60 * 1000,
+    path: "/",
+  });
+  res.json({ authenticated: true });
+});
+
+app.post("/api/auth/logout", (_req, res) => {
+  res.clearCookie("solvemate_auth", { path: "/" });
+  res.json({ ok: true });
+});
+
+app.get("/api/questions/:id/explanation", requireAuth, async (req, res, next) => {
   try {
     const question = getQuestionOrThrow(req.params.id);
     const refresh = req.query.refresh === "1";
@@ -69,7 +113,7 @@ app.get("/api/questions/:id/explanation", async (req, res, next) => {
   }
 });
 
-app.post("/api/questions/:id/chat", async (req, res, next) => {
+app.post("/api/questions/:id/chat", requireAuth, async (req, res, next) => {
   try {
     const question = getQuestionOrThrow(req.params.id);
     const message = String(req.body?.message || "").trim();
@@ -81,7 +125,7 @@ app.post("/api/questions/:id/chat", async (req, res, next) => {
   }
 });
 
-app.post("/api/questions/:id/grade", async (req, res, next) => {
+app.post("/api/questions/:id/grade", requireAuth, async (req, res, next) => {
   try {
     const question = getQuestionOrThrow(req.params.id);
     if (question.type !== "short") {
@@ -96,7 +140,7 @@ app.post("/api/questions/:id/grade", async (req, res, next) => {
   }
 });
 
-app.post("/api/explanations/prewarm", async (_req, res) => {
+app.post("/api/explanations/prewarm", requireAuth, async (_req, res) => {
   if (pregenState.running) {
     return res.json({ started: false, pregen: pregenState });
   }

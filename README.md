@@ -14,6 +14,7 @@ SolveMate is a local AI-assisted practice website for the question bank in `Ques
 - Cached explanations are shown automatically after answering
 - AI follow-up Q&A for each question
 - AI quick grading for short-answer questions
+- Password protection to prevent LLM API abuse on public deployments
 
 ## Quick Start
 
@@ -45,6 +46,27 @@ For additional tunnel domains, set comma-separated hosts in `.env`:
 ```bash
 VITE_ALLOWED_HOSTS=example.com,another.example.com
 ```
+
+## Authentication
+
+When deploying SolveMate to a public network, set a password to protect LLM API endpoints from abuse:
+
+```bash
+# .env
+AUTH_PASSWORD=your_password
+```
+
+- Leave `AUTH_PASSWORD` empty to disable authentication (default local-only mode).
+- `AUTH_COOKIE_SECRET` signs session cookies. Leave empty to auto-generate (sessions reset on server restart).
+- `AUTH_SESSION_DAYS` controls session duration (default 7 days).
+
+Protected endpoints (`401` when unauthenticated):
+- `GET /api/questions/:id/explanation`
+- `POST /api/questions/:id/chat`
+- `POST /api/questions/:id/grade`
+- `POST /api/explanations/prewarm`
+
+Public endpoints (always accessible): `/api/health`, `/api/questions`.
 
 ## AI Configuration
 

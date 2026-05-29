@@ -7,6 +7,7 @@ import {
   CheckCircle2,
   Clock3,
   Library,
+  LogOut,
   MessageSquareText,
   RefreshCcw,
   RotateCw,
@@ -93,6 +94,7 @@ export function App() {
   const [chatLoading, setChatLoading] = useState(false);
   const [status, setStatus] = useState("");
   const [elapsed, setElapsed] = useState(0);
+  const [authenticated, setAuthenticated] = useState<"loading" | true | false>("loading");
   const startedAt = useRef(Date.now());
   const currentIdRef = useRef("");
 
@@ -154,13 +156,38 @@ export function App() {
   const isFavorite = current ? state.favorites.includes(current.id) : false;
 
   async function bootstrap() {
-    const [questionPayload, healthPayload] = await Promise.all([
-      fetch("/api/questions").then((res) => res.json()),
-      fetch("/api/health").then((res) => res.json()),
-    ]);
-    setQuestions(questionPayload.questions);
-    setCurrentId(questionPayload.questions[0]?.id || "");
-    setHealth(healthPayload);
+    try {
+      const authRes = await fetch("/api/auth/status");
+      const authData = await authRes.json();
+      if (!authData.authenticated) {
+        setAuthenticated(false);
+        return;
+      }
+      setAuthenticated(true);
+      const [questionPayload, healthPayload] = await Promise.all([
+        fetch("/api/questions").then((res) => res.json()),
+        fetch("/api/health").then((res) => res.json()),
+      ]);
+      setQuestions(questionPayload.questions);
+      setCurrentId(questionPayload.questions[0]?.id || "");
+      setHealth(healthPayload);
+    } catch {
+      setAuthenticated(false);
+    }
+  }
+
+  async function authFetch(input: RequestInfo, init?: RequestInit): Promise<Response> {
+    const res = await fetch(input, init);
+    if (res.status === 401) {
+      setAuthenticated(false);
+      throw new Error("会话已过期，请重新登录");
+    }
+    return res;
+  }
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    setAuthenticated(false);
   }
 
   function chooseQuestion(id: string) {
@@ -245,7 +272,7 @@ export function App() {
 
     setStatus("正在调用 AI 评分...");
     try {
-      const res = await fetch(`/api/questions/${current.id}/grade`, {
+      const res = await authFetch(`/api/questions/${current.id}/grade`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ answer: textAnswer }),
@@ -317,7 +344,7 @@ export function App() {
     setExplanationLoading(true);
     setStatus(refresh ? "正在重新生成解析..." : "正在读取 AI 解析...");
     try {
-      const res = await fetch(`/api/questions/${current.id}/explanation${refresh ? "?refresh=1" : ""}`);
+      const res = await authFetch(`/api/questions/${current.id}/explanation${refresh ? "?refresh=1" : ""}`);
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.error || "解析生成失败");
       setExplanation(payload.explanation);
@@ -332,7 +359,7 @@ export function App() {
 
   async function loadCachedExplanation(question: Question) {
     try {
-      const res = await fetch(`/api/questions/${question.id}/explanation?cacheOnly=1`);
+      const res = await authFetch(`/api/questions/${question.id}/explanation?cacheOnly=1`);
       if (!res.ok) return;
       const payload = await res.json();
       if (currentIdRef.current !== question.id) return;
@@ -353,7 +380,7 @@ export function App() {
     setChatInput("");
     setChatLoading(true);
     try {
-      const res = await fetch(`/api/questions/${current.id}/chat`, {
+      const res = await authFetch(`/api/questions/${current.id}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message, history: chat }),
@@ -369,7 +396,7 @@ export function App() {
   }
 
   async function startPrewarm() {
-    const res = await fetch("/api/explanations/prewarm", { method: "POST" });
+    const res = await authFetch("/api/explanations/prewarm", { method: "POST" });
     const payload = await res.json();
     setStatus(payload.started ? "已开始后台初始化解析。" : "初始化任务已经在运行。");
     void refreshHealth();
@@ -383,6 +410,14 @@ export function App() {
   function resetLocalStats() {
     if (!confirm("确定清空本地刷题记录、错题和收藏吗？")) return;
     setState(EMPTY_STATE);
+  }
+
+  if (authenticated === "loading") {
+    return <div className="loading">正在加载...</div>;
+  }
+
+  if (!authenticated) {
+    return <LoginPage onLogin={bootstrap} />;
   }
 
   if (!current) {
@@ -424,6 +459,9 @@ export function App() {
         <div className="sidebar-footer">
           <span>正确率 {accuracy}%</span>
           <span>用时 {formatSeconds(state.stats.totalSeconds)}</span>
+          <button className="logout-button" onClick={handleLogout}>
+            <LogOut size={16} /> 退出
+          </button>
         </div>
       </aside>
 
@@ -784,6 +822,56 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div className="metric">
       <span>{label}</span>
       <strong>{value}</strong>
+    </div>
+  );
+}
+
+function LoginPage({ onLogin }: { onLogin: () => void }) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!password.trim()) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: password.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "登录失败");
+      onLogin();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "登录失败");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="login-page">
+      <form className="login-card" onSubmit={handleSubmit}>
+        <h1>
+          <Brain size={32} />
+          <span>SolveMate</span>
+        </h1>
+        <p>此站点已启用密码保护，请输入密码继续</p>
+        <input
+          type="password"
+          value={password}
+          placeholder="请输入密码"
+          autoFocus
+          onChange={(e) => setPassword(e.target.value)}
+        />
+        <button type="submit" disabled={loading}>
+          {loading ? "验证中..." : "进入"}
+        </button>
+        {error && <div className="login-error">{error}</div>}
+      </form>
     </div>
   );
 }
