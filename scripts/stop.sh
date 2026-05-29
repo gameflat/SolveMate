@@ -2,10 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PID_FILES=(
-  "$ROOT_DIR/.run/solvemate-server.pid"
-  "$ROOT_DIR/.run/solvemate-client.pid"
-)
+PID_FILE="$ROOT_DIR/.run/solvemate.pid"
 
 kill_tree() {
   local pid="$1"
@@ -19,25 +16,23 @@ kill_tree() {
 
 STOPPED=0
 
-for pid_file in "${PID_FILES[@]}"; do
-  if [[ -f "$pid_file" ]]; then
-    PID="$(cat "$pid_file")"
-    if [[ -n "$PID" ]] && kill -0 "$PID" 2>/dev/null; then
-      kill_tree "$PID"
-      STOPPED=1
-      echo "Stopped SolveMate process tree rooted at PID $PID"
-    fi
-    rm -f "$pid_file"
+if [[ -f "$PID_FILE" ]]; then
+  PID="$(cat "$PID_FILE")"
+  if [[ -n "$PID" ]] && kill -0 "$PID" 2>/dev/null; then
+    kill_tree "$PID"
+    STOPPED=1
+    echo "Stopped SolveMate (PID $PID)."
   fi
-done
+  rm -f "$PID_FILE"
+fi
 
-for port in 5173 8787; do
+for port in 8787; do
   PIDS="$(lsof -ti tcp:"$port" 2>/dev/null || true)"
   if [[ -n "$PIDS" ]]; then
     for pid in $PIDS; do
       kill_tree "$pid"
       STOPPED=1
-      echo "Stopped process on port $port with PID $pid"
+      echo "Stopped process on port $port (PID $pid)."
     done
   fi
 done

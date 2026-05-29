@@ -23,19 +23,11 @@ npm install
 npm start
 ```
 
-Open [http://localhost:5173](http://localhost:5173).
+Open [http://localhost:8787](http://localhost:8787).
 
-Useful commands:
+`npm start` builds the frontend, then starts the Express server on port `8787`. In production, the server serves both the API and the built static files — no separate Vite dev server is needed.
 
-```bash
-npm run status
-npm stop
-npm run typecheck
-npm run build
-npm run import:questions
-```
-
-`npm start` runs the Express API on `8787` and the Vite frontend on `5173` in the background. Logs are written to `logs/solvemate-server.log` and `logs/solvemate-client.log`.
+During development, use `npm run dev` to start the Vite dev server on `5173` with hot-reload alongside the Express API on `8787`.
 
 ## Public Tunnel Hosts
 
