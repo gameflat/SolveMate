@@ -296,6 +296,33 @@ h1 {
   line-height: 1.6;
 }
 
+.fill-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.fill-input {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.fill-input span {
+  color: #5f6b67;
+  font-weight: 650;
+}
+
+.fill-input input,
+.search-box input {
+  min-width: 0;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid #cfdad5;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
 .question-actions {
   margin-top: 20px;
 }
@@ -431,6 +458,103 @@ h1 {
   padding: 16px;
 }
 
+.bank-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.bank-toolbar {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.42fr) minmax(260px, 0.58fr);
+  gap: 16px;
+  align-items: center;
+}
+
+.bank-toolbar strong,
+.bank-toolbar span {
+  display: block;
+}
+
+.bank-toolbar span {
+  margin-top: 4px;
+  color: #68736f;
+}
+
+.search-box {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid #cfdad5;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.search-box input {
+  border: 0;
+  padding: 0;
+  outline: 0;
+}
+
+.bank-list {
+  display: grid;
+  max-height: calc(100vh - 190px);
+  overflow: auto;
+  border-top: 1px solid #edf1ef;
+}
+
+.bank-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) minmax(140px, 0.28fr);
+  gap: 14px;
+  align-items: center;
+  width: 100%;
+  padding: 12px 0;
+  border: 0;
+  border-bottom: 1px solid #edf1ef;
+  background: transparent;
+  text-align: left;
+}
+
+.bank-row.active {
+  background: #f0faf6;
+}
+
+.bank-row-index {
+  color: #68736f;
+  font-variant-numeric: tabular-nums;
+}
+
+.bank-row-main {
+  min-width: 0;
+}
+
+.bank-row-main strong,
+.bank-row-main em {
+  display: block;
+}
+
+.bank-row-main strong {
+  overflow: hidden;
+  color: #1b2522;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bank-row-main em {
+  margin-top: 5px;
+  color: #68736f;
+  font-style: normal;
+}
+
+.bank-row-answer {
+  overflow: hidden;
+  color: #43504c;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .table-head {
   display: flex;
   align-items: center;
@@ -485,7 +609,7 @@ h1 {
   }
 
   .nav {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
   .nav button {
@@ -497,7 +621,8 @@ h1 {
   }
 
   .practice-layout,
-  .metric-grid {
+  .metric-grid,
+  .bank-toolbar {
     grid-template-columns: 1fr;
   }
 }
@@ -525,6 +650,20 @@ h1 {
   }
 
   .row-item {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .bank-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .bank-row-answer {
+    white-space: normal;
+  }
+
+  .fill-input {
     grid-template-columns: 1fr;
     gap: 6px;
   }

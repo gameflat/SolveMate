@@ -1,13 +1,16 @@
 import {
+  ArrowLeft,
   BarChart3,
   Bookmark,
   BookmarkCheck,
   Brain,
   CheckCircle2,
   Clock3,
+  Library,
   MessageSquareText,
   RefreshCcw,
   RotateCw,
+  Search,
   Shuffle,
   Sparkles,
   Target,
@@ -74,11 +77,13 @@ const typeLabels: Record<QuestionType, string> = {
 export function App() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [health, setHealth] = useState<Health | null>(null);
-  const [activeView, setActiveView] = useState<"practice" | "stats" | "mistakes" | "favorites" | "ai">("practice");
+  const [activeView, setActiveView] = useState<"practice" | "bank" | "stats" | "mistakes" | "favorites" | "ai">("practice");
   const [typeFilter, setTypeFilter] = useState<QuestionType | "all">("all");
   const [currentId, setCurrentId] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [textAnswer, setTextAnswer] = useState("");
+  const [fillAnswers, setFillAnswers] = useState<string[]>([]);
+  const [bankSearch, setBankSearch] = useState("");
   const [result, setResult] = useState<ResultState | null>(null);
   const [state, setState] = useState<UserState>(() => loadState());
   const [explanation, setExplanation] = useState("");
@@ -89,6 +94,7 @@ export function App() {
   const [status, setStatus] = useState("");
   const [elapsed, setElapsed] = useState(0);
   const startedAt = useRef(Date.now());
+  const currentIdRef = useRef("");
 
   useEffect(() => {
     void bootstrap();
@@ -99,10 +105,13 @@ export function App() {
   }, [state]);
 
   useEffect(() => {
+    currentIdRef.current = currentId;
     startedAt.current = Date.now();
     setElapsed(0);
     setSelected([]);
     setTextAnswer("");
+    const nextQuestion = questions.find((question) => question.id === currentId);
+    setFillAnswers(Array.from({ length: nextQuestion?.type === "fill" ? getBlankCount(nextQuestion) : 0 }, () => ""));
     setResult(null);
     setExplanation("");
     setChat([]);
@@ -110,7 +119,7 @@ export function App() {
       setElapsed(Math.round((Date.now() - startedAt.current) / 1000));
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [currentId]);
+  }, [currentId, questions]);
 
   const filtered = useMemo(() => {
     return typeFilter === "all" ? questions : questions.filter((question) => question.type === typeFilter);
@@ -120,6 +129,16 @@ export function App() {
     () => questions.find((question) => question.id === currentId) || filtered[0] || questions[0],
     [questions, currentId, filtered],
   );
+
+  const currentIndex = useMemo(() => filtered.findIndex((question) => question.id === current?.id), [filtered, current]);
+
+  const bankQuestions = useMemo(() => {
+    const term = normalizeSearch(bankSearch);
+    if (!term) return filtered;
+    return filtered.filter((question) =>
+      normalizeSearch(`${question.excelRow} ${question.rawType} ${question.prompt} ${question.answer}`).includes(term),
+    );
+  }, [filtered, bankSearch]);
 
   const visibleMistakes = useMemo(
     () => Object.keys(state.mistakes).map((id) => questions.find((question) => question.id === id)).filter(Boolean) as Question[],
@@ -157,8 +176,16 @@ export function App() {
 
   function chooseNext() {
     const pool = filtered.length ? filtered : questions;
-    const index = Math.max(0, pool.findIndex((question) => question.id === current?.id));
-    chooseQuestion(pool[(index + 1) % pool.length]?.id || pool[0]?.id);
+    const index = pool.findIndex((question) => question.id === current?.id);
+    const nextIndex = index >= 0 ? (index + 1) % pool.length : 0;
+    chooseQuestion(pool[nextIndex]?.id || pool[0]?.id);
+  }
+
+  function choosePrevious() {
+    const pool = filtered.length ? filtered : questions;
+    const index = pool.findIndex((question) => question.id === current?.id);
+    const previousIndex = index >= 0 ? (index - 1 + pool.length) % pool.length : pool.length - 1;
+    chooseQuestion(pool[previousIndex]?.id || pool[0]?.id);
   }
 
   function toggleOption(key: string) {
@@ -168,6 +195,10 @@ export function App() {
     } else {
       setSelected([key]);
     }
+  }
+
+  function updateFillAnswer(index: number, value: string) {
+    setFillAnswers((old) => old.map((answer, answerIndex) => (answerIndex === index ? value : answer)));
   }
 
   async function submitAnswer() {
@@ -180,10 +211,14 @@ export function App() {
 
     const userAnswer =
       current.type === "fill"
-        ? textAnswer
+        ? fillAnswers.map((answer) => answer.trim()).join("；")
         : current.type === "judge"
           ? selected.map((key) => current.options.find((option) => option.key === key)?.text || key).join("")
           : selected.join("");
+    if (current.type === "fill" && fillAnswers.some((answer) => !answer.trim())) {
+      setStatus("请填写所有空。");
+      return;
+    }
     if (!userAnswer.trim()) {
       setStatus("请先作答。");
       return;
@@ -199,6 +234,7 @@ export function App() {
     };
     setResult(nextResult);
     recordAttempt(current, userAnswer, correct);
+    void loadCachedExplanation(current);
   }
 
   async function gradeShortAnswer() {
@@ -225,6 +261,7 @@ export function App() {
       });
       recordAttempt(current, textAnswer, correct);
       setStatus("");
+      void loadCachedExplanation(current);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "评分失败");
     }
@@ -293,6 +330,20 @@ export function App() {
     }
   }
 
+  async function loadCachedExplanation(question: Question) {
+    try {
+      const res = await fetch(`/api/questions/${question.id}/explanation?cacheOnly=1`);
+      if (!res.ok) return;
+      const payload = await res.json();
+      if (currentIdRef.current !== question.id) return;
+      setExplanation(payload.explanation);
+      setStatus("已显示缓存解析。");
+      void refreshHealth();
+    } catch {
+      // Cached explanation loading is opportunistic after answering.
+    }
+  }
+
   async function askAi(event: FormEvent) {
     event.preventDefault();
     if (!current || !chatInput.trim()) return;
@@ -353,6 +404,9 @@ export function App() {
           <button className={activeView === "practice" ? "active" : ""} onClick={() => setActiveView("practice")}>
             <Target size={18} /> 练习
           </button>
+          <button className={activeView === "bank" ? "active" : ""} onClick={() => setActiveView("bank")}>
+            <Library size={18} /> 题库
+          </button>
           <button className={activeView === "stats" ? "active" : ""} onClick={() => setActiveView("stats")}>
             <BarChart3 size={18} /> 统计
           </button>
@@ -386,6 +440,10 @@ export function App() {
             <button className="icon-button" title="随机刷题" onClick={chooseRandom}>
               <Shuffle size={18} />
             </button>
+            <button className="action" onClick={choosePrevious}>
+              <ArrowLeft size={18} />
+              上一题
+            </button>
             <button className="action" onClick={chooseNext}>
               下一题
             </button>
@@ -400,6 +458,7 @@ export function App() {
               <div className="question-meta">
                 <span>{current.rawType}</span>
                 <span>Excel 第 {current.excelRow} 行</span>
+                {currentIndex >= 0 && <span>{currentIndex + 1}/{filtered.length}</span>}
                 <span>
                   <Clock3 size={14} /> {formatSeconds(elapsed)}
                 </span>
@@ -421,12 +480,27 @@ export function App() {
                 </div>
               )}
 
-              {(current.type === "fill" || current.type === "short") && (
+              {current.type === "fill" && (
+                <div className="fill-grid">
+                  {fillAnswers.map((answer, index) => (
+                    <label key={`${current.id}-${index}`} className="fill-input">
+                      <span>空 {index + 1}</span>
+                      <input
+                        value={answer}
+                        placeholder={`填写第 ${index + 1} 空`}
+                        onChange={(event) => updateFillAnswer(index, event.target.value)}
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
+
+              {current.type === "short" && (
                 <textarea
                   className="answer-box"
                   value={textAnswer}
-                  rows={current.type === "short" ? 7 : 3}
-                  placeholder={current.type === "short" ? "输入简答题答案，提交后调用 AI 快速评分" : "输入填空题答案"}
+                  rows={7}
+                  placeholder="输入简答题答案，提交后调用 AI 快速评分"
                   onChange={(event) => setTextAnswer(event.target.value)}
                 />
               )}
@@ -489,6 +563,17 @@ export function App() {
               </form>
             </section>
           </div>
+        )}
+
+        {activeView === "bank" && (
+          <QuestionBank
+            questions={bankQuestions}
+            total={filtered.length}
+            search={bankSearch}
+            currentId={current.id}
+            onSearch={setBankSearch}
+            onChoose={chooseQuestion}
+          />
         )}
 
         {activeView === "stats" && (
@@ -571,6 +656,63 @@ function StatsView({
           ))
         )}
       </div>
+    </section>
+  );
+}
+
+function QuestionBank({
+  questions,
+  total,
+  search,
+  currentId,
+  onSearch,
+  onChoose,
+}: {
+  questions: Question[];
+  total: number;
+  search: string;
+  currentId: string;
+  onSearch: (value: string) => void;
+  onChoose: (id: string) => void;
+}) {
+  return (
+    <section className="table-panel bank-panel">
+      <div className="bank-toolbar">
+        <div>
+          <strong>题库浏览</strong>
+          <span>
+            显示 {questions.length}/{total} 道
+          </span>
+        </div>
+        <label className="search-box">
+          <Search size={18} />
+          <input value={search} placeholder="搜索题干、答案、题型或 Excel 行号" onChange={(event) => onSearch(event.target.value)} />
+        </label>
+      </div>
+
+      {questions.length === 0 ? (
+        <p className="empty">没有匹配的题目。</p>
+      ) : (
+        <div className="bank-list">
+          {questions.map((question) => (
+            <button
+              key={question.id}
+              className={question.id === currentId ? "bank-row active" : "bank-row"}
+              onClick={() => onChoose(question.id)}
+            >
+              <span className="bank-row-index">#{question.excelRow}</span>
+              <span className="bank-row-main">
+                <strong>{question.prompt}</strong>
+                <em>
+                  {question.rawType}
+                  {question.type === "fill" ? ` · ${getBlankCount(question)} 空` : ""}
+                </em>
+              </span>
+              <span className="bank-row-answer">{question.answer}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -660,6 +802,19 @@ function normalizeChoice(value: string) {
 
 function normalizeText(value: string) {
   return value.replace(/\s|；|;|。|，|,/g, "").toLowerCase();
+}
+
+function normalizeSearch(value: string) {
+  return value.replace(/\s+/g, "").toLowerCase();
+}
+
+function getBlankCount(question: Question) {
+  const promptBlanks = question.prompt.match(/（\s*）|\(\s*\)|_{2,}|【\s*】/g)?.length || 0;
+  const answerParts = question.answer
+    .split(/[;；]/)
+    .map((part) => part.trim())
+    .filter(Boolean).length;
+  return Math.max(1, promptBlanks, answerParts);
 }
 
 function formatSeconds(seconds: number) {

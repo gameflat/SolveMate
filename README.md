@@ -5,9 +5,13 @@ SolveMate is a local AI-assisted practice website for the question bank in `Ques
 ## Features
 
 - Random and sequential practice
+- Question-bank browser with search and direct question selection
+- Previous and next question navigation
 - Type filters for single-choice, multiple-choice, true/false, fill-in-the-blank, and short-answer questions
+- Fill-in-the-blank questions render one input per blank
 - Practice timer, accuracy statistics, mistake records, and favorites
 - AI explanation generation with local cache and manual regeneration
+- Cached explanations are shown automatically after answering
 - AI follow-up Q&A for each question
 - AI quick grading for short-answer questions
 
@@ -31,6 +35,16 @@ npm run import:questions
 ```
 
 `npm start` runs the Express API on `8787` and the Vite frontend on `5173` in the background. Logs are written to `logs/solvemate-server.log` and `logs/solvemate-client.log`.
+
+## Public Tunnel Hosts
+
+Vite blocks unknown Host headers during development. `frp-put.com`, `*.cpolar.cn`, and `*.cpolar.top` are already allowed in `vite.config.ts`.
+
+For additional tunnel domains, set comma-separated hosts in `.env`:
+
+```bash
+VITE_ALLOWED_HOSTS=example.com,another.example.com
+```
 
 ## AI Configuration
 

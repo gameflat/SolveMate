@@ -33,13 +33,15 @@ if lsof -ti tcp:5173 >/dev/null 2>&1 || lsof -ti tcp:8787 >/dev/null 2>&1; then
 fi
 
 cd "$ROOT_DIR"
-nohup npm run dev:server >"$SERVER_LOG_FILE" 2>&1 &
+nohup node server/index.js >"$SERVER_LOG_FILE" 2>&1 </dev/null &
 SERVER_PID="$!"
 echo "$SERVER_PID" > "$SERVER_PID_FILE"
+disown "$SERVER_PID" 2>/dev/null || true
 
-nohup npm run dev:client >"$CLIENT_LOG_FILE" 2>&1 &
+nohup node node_modules/vite/bin/vite.js --host 0.0.0.0 >"$CLIENT_LOG_FILE" 2>&1 </dev/null &
 CLIENT_PID="$!"
 echo "$CLIENT_PID" > "$CLIENT_PID_FILE"
+disown "$CLIENT_PID" 2>/dev/null || true
 
 echo "SolveMate started."
 echo "Server PID: $SERVER_PID"

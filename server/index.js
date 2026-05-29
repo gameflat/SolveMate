@@ -46,10 +46,15 @@ app.get("/api/questions/:id/explanation", async (req, res, next) => {
   try {
     const question = getQuestionOrThrow(req.params.id);
     const refresh = req.query.refresh === "1";
+    const cacheOnly = req.query.cacheOnly === "1";
     const cache = await readExplanationCache();
 
     if (!refresh && cache[question.id]) {
       return res.json({ explanation: cache[question.id].content, cached: true });
+    }
+
+    if (cacheOnly) {
+      return res.status(404).json({ error: "cached explanation not found" });
     }
 
     const explanation = await generateExplanation(question);
