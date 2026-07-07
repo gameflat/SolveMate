@@ -1,0 +1,15 @@
+{
+  "banks": [
+    {
+      "id": "mto-loru-202103",
+      "questions": 1130,
+      "warnings": 0
+    },
+    {
+      "id": "legacy-competition-20240522",
+      "questions": 641,
+      "warnings": 0
+    }
+  ],
+  "warnings": []
+}

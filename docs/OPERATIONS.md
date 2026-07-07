@@ -8,12 +8,18 @@ npm start
 
 This command creates:
 
-- `.run/solvemate-server.pid`
-- `.run/solvemate-client.pid`
-- `logs/solvemate-server.log`
-- `logs/solvemate-client.log`
+- `.run/solvemate.pid`
+- `logs/solvemate.log`
 
-The frontend is available at `http://localhost:5173`, and the API is available at `http://localhost:8787`.
+The production build and API are both served at `http://localhost:8787`.
+
+For hot-reload development, use:
+
+```bash
+npm run dev
+```
+
+This starts Vite on `http://localhost:5173` and the API on `http://localhost:8787`.
 
 ## Stop
 
@@ -34,8 +40,7 @@ This reports the PID file state, port usage, and log file path.
 ## Logs
 
 ```bash
-tail -f logs/solvemate-server.log
-tail -f logs/solvemate-client.log
+tail -f logs/solvemate.log
 ```
 
 ## Health Check
@@ -44,7 +49,7 @@ tail -f logs/solvemate-client.log
 curl http://localhost:8787/api/health
 ```
 
-The health response includes question count, AI configuration state, explanation cache count, and background pre-generation progress.
+The health response includes bank counts, AI configuration state, explanation cache count, and background pre-generation progress.
 
 ## Git Notes
 
@@ -56,3 +61,4 @@ Generated runtime files are ignored:
 - `logs/`
 - `dist/`
 - `node_modules/`
+- `data/user-store.json`

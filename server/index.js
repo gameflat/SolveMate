@@ -5,21 +5,32 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import cookieParser from "cookie-parser";
-import bcrypt from "bcryptjs";
 import crypto from "node:crypto";
 import { answerQuestion, generateExplanation, getLlmConfig, gradeShortAnswer } from "./llmClient.js";
-import { loadQuestions } from "./questionLoader.js";
+import { loadQuestionBanks, publicBankMeta } from "./questionLoader.js";
+import {
+  buildConfiguredUsers,
+  checkIn,
+  ensureUser,
+  getUserState,
+  recordAttempt,
+  resetUser,
+  saveProgress,
+  setFavorite,
+  verifyConfiguredUser,
+} from "./userStore.js";
 
 dotenv.config();
 
-const AUTH_PASSWORD = process.env.AUTH_PASSWORD || "";
 const AUTH_COOKIE_SECRET = process.env.AUTH_COOKIE_SECRET || crypto.randomBytes(32).toString("hex");
 const AUTH_SESSION_DAYS = Number(process.env.AUTH_SESSION_DAYS) || 7;
-const passwordHash = AUTH_PASSWORD ? bcrypt.hashSync(AUTH_PASSWORD, 10) : null;
+const configuredUsers = buildConfiguredUsers();
 
 const app = express();
 const port = Number(process.env.PORT || 8787);
-const questions = loadQuestions();
+const questionBankPayload = loadQuestionBanks();
+const banks = questionBankPayload.banks;
+const questions = questionBankPayload.questions;
 const byId = new Map(questions.map((question) => [question.id, question]));
 const cacheDir = path.join(process.cwd(), ".cache");
 const explanationCachePath = path.join(cacheDir, "ai-explanations.json");
@@ -37,8 +48,15 @@ app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser(AUTH_COOKIE_SECRET));
 
 function requireAuth(req, res, next) {
-  if (!passwordHash) return next();
-  if (req.signedCookies.solvemate_auth === "true") return next();
+  if (!configuredUsers.size) {
+    req.username = "local";
+    return next();
+  }
+  const username = req.signedCookies.solvemate_user;
+  if (username && configuredUsers.has(username)) {
+    req.username = username;
+    return next();
+  }
   res.status(401).json({ error: "authentication required" });
 }
 
@@ -47,43 +65,122 @@ app.get("/api/health", async (_req, res) => {
   res.json({
     ok: true,
     questionCount: questions.length,
+    defaultBankId: questionBankPayload.defaultBankId,
+    banks: banks.map(publicBankMeta),
     ai: getLlmConfig(),
     explanationCacheCount: Object.keys(cache).length,
     pregen: pregenState,
   });
 });
 
-app.get("/api/questions", (_req, res) => {
-  res.json({ questions });
+app.get("/api/banks", requireAuth, (_req, res) => {
+  res.json({
+    defaultBankId: questionBankPayload.defaultBankId,
+    banks: banks.map(publicBankMeta),
+  });
+});
+
+app.get("/api/questions", requireAuth, (req, res) => {
+  const bankId = String(req.query.bankId || questionBankPayload.defaultBankId);
+  const bank = banks.find((item) => item.id === bankId) || banks[0];
+  res.json({
+    defaultBankId: questionBankPayload.defaultBankId,
+    banks: banks.map(publicBankMeta),
+    activeBankId: bank?.id || "",
+    questions: bank?.questions || questions,
+  });
 });
 
 app.get("/api/auth/status", (req, res) => {
-  if (!passwordHash) return res.json({ authenticated: true, enabled: false });
+  if (!configuredUsers.size) return res.json({ authenticated: true, enabled: false, username: "local" });
+  const username = req.signedCookies.solvemate_user;
   res.json({
-    authenticated: req.signedCookies.solvemate_auth === "true",
+    authenticated: Boolean(username && configuredUsers.has(username)),
     enabled: true,
+    username: username || "",
   });
 });
 
 app.post("/api/auth/login", async (req, res) => {
-  if (!passwordHash) return res.status(403).json({ error: "authentication is not configured" });
-  const { password } = req.body || {};
+  if (!configuredUsers.size) return res.status(403).json({ error: "authentication is not configured" });
+  const { username, password } = req.body || {};
   if (!password) return res.status(400).json({ error: "password is required" });
-  const valid = await bcrypt.compare(password, passwordHash);
-  if (!valid) return res.status(401).json({ error: "invalid password" });
-  res.cookie("solvemate_auth", "true", {
+  const fallbackUsername = configuredUsers.size === 1 ? [...configuredUsers.keys()][0] : "";
+  const verifiedUsername = await verifyConfiguredUser(configuredUsers, username || fallbackUsername, password);
+  if (!verifiedUsername) return res.status(401).json({ error: "invalid username or password" });
+  await ensureUser(verifiedUsername);
+  res.cookie("solvemate_user", verifiedUsername, {
     signed: true,
     httpOnly: true,
     sameSite: "lax",
     maxAge: AUTH_SESSION_DAYS * 24 * 60 * 60 * 1000,
     path: "/",
   });
-  res.json({ authenticated: true });
+  res.json({ authenticated: true, username: verifiedUsername });
 });
 
 app.post("/api/auth/logout", (_req, res) => {
-  res.clearCookie("solvemate_auth", { path: "/" });
+  res.clearCookie("solvemate_user", { path: "/" });
   res.json({ ok: true });
+});
+
+app.get("/api/me", requireAuth, async (req, res, next) => {
+  try {
+    res.json(await getUserState(req.username));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/me/favorite", requireAuth, async (req, res, next) => {
+  try {
+    const question = getQuestionOrThrow(req.body?.questionId);
+    res.json(await setFavorite(req.username, question.id, Boolean(req.body?.favorite)));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/me/attempt", requireAuth, async (req, res, next) => {
+  try {
+    const question = getQuestionOrThrow(req.body?.questionId);
+    res.json(
+      await recordAttempt(req.username, {
+        questionId: question.id,
+        bankId: question.bankId,
+        answer: req.body?.answer,
+        correct: req.body?.correct,
+        seconds: req.body?.seconds,
+      }),
+    );
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/me/progress", requireAuth, async (req, res, next) => {
+  try {
+    if (req.body?.questionId) getQuestionOrThrow(req.body.questionId);
+    res.json(await saveProgress(req.username, req.body || {}));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/me/checkin", requireAuth, async (req, res, next) => {
+  try {
+    res.json(await checkIn(req.username));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/me/reset", requireAuth, async (req, res, next) => {
+  try {
+    res.json(await resetUser(req.username));
+  } catch (error) {
+    next(error);
+  }
 });
 
 app.get("/api/questions/:id/explanation", requireAuth, async (req, res, next) => {
@@ -172,7 +269,7 @@ app.use((err, _req, res, _next) => {
 
 app.listen(port, () => {
   console.log(`SolveMate API running at http://localhost:${port}`);
-  if (process.env.AI_PREGENERATE_ON_START !== "false" && getLlmConfig().configured) {
+  if (process.env.AI_PREGENERATE_ON_START === "true" && getLlmConfig().configured) {
     runExplanationPrewarm().catch((error) => {
       pregenState.running = false;
       pregenState.lastError = error.message;

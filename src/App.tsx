@@ -4,9 +4,12 @@ import {
   Bookmark,
   BookmarkCheck,
   Brain,
+  CalendarCheck,
   CheckCircle2,
   Clock3,
+  History,
   Library,
+  ListChecks,
   LogOut,
   MessageSquareText,
   RefreshCcw,
@@ -15,15 +18,22 @@ import {
   Shuffle,
   Sparkles,
   Target,
+  Timer,
+  Trophy,
   XCircle,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 
 type QuestionType = "single" | "multiple" | "judge" | "fill" | "short" | "unknown";
+type PracticeMode = "random" | "sequential" | "custom" | "mistakes";
+type View = "practice" | "bank" | "stats" | "mistakes" | "favorites" | "ai";
 
 type Question = {
   id: string;
-  excelRow: number;
+  bankId: string;
+  excelRow?: number;
+  sourceIndex: number;
   prompt: string;
   rawType: string;
   type: QuestionType;
@@ -32,15 +42,37 @@ type Question = {
   answerKeys: string[];
 };
 
+type BankMeta = {
+  id: string;
+  name: string;
+  label: string;
+  source: string;
+  isLegacy: boolean;
+  questionCount: number;
+};
+
+type PeriodStat = { attempts: number; correct: number; totalSeconds: number };
+type QuestionStat = PeriodStat & { lastAt?: string; lastAnswer?: string };
+
 type UserState = {
+  username: string;
   favorites: string[];
   mistakes: Record<string, { count: number; lastAt: string; lastAnswer: string }>;
-  stats: {
-    attempts: number;
-    correct: number;
-    totalSeconds: number;
-    byQuestion: Record<string, { attempts: number; correct: number; totalSeconds: number }>;
+  stats: PeriodStat & {
+    byQuestion: Record<string, QuestionStat>;
+    daily: Record<string, PeriodStat>;
+    weekly: Record<string, PeriodStat>;
+    monthly: Record<string, PeriodStat>;
+    recentAttempts: { questionId: string; bankId: string; correct: boolean; seconds: number; answer: string; at: string; dayKey: string }[];
   };
+  progress: {
+    lastBankId: string;
+    lastQuestionId: string;
+    currentByBank: Record<string, string>;
+    mode: PracticeMode;
+    typeFilter: QuestionType | "all";
+  };
+  checkins: { checkedToday: boolean; streak: number; days: string[] };
 };
 
 type ResultState = {
@@ -52,6 +84,8 @@ type ResultState = {
 
 type Health = {
   questionCount: number;
+  defaultBankId: string;
+  banks: BankMeta[];
   ai: { configured: boolean; model: string; baseUrl: string };
   explanationCacheCount: number;
   pregen: { running: boolean; total: number; done: number; cached: number; failed: number; lastError: string };
@@ -59,11 +93,13 @@ type Health = {
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
-const STORAGE_KEY = "solvemate-state-v1";
 const EMPTY_STATE: UserState = {
+  username: "",
   favorites: [],
   mistakes: {},
-  stats: { attempts: 0, correct: 0, totalSeconds: 0, byQuestion: {} },
+  stats: { attempts: 0, correct: 0, totalSeconds: 0, byQuestion: {}, daily: {}, weekly: {}, monthly: {}, recentAttempts: [] },
+  progress: { lastBankId: "", lastQuestionId: "", currentByBank: {}, mode: "random", typeFilter: "all" },
+  checkins: { checkedToday: false, streak: 0, days: [] },
 };
 
 const typeLabels: Record<QuestionType, string> = {
@@ -71,22 +107,32 @@ const typeLabels: Record<QuestionType, string> = {
   multiple: "多选",
   judge: "判断",
   fill: "填空",
-  short: "简答",
+  short: "问答",
   unknown: "其他",
+};
+
+const modeLabels: Record<PracticeMode, string> = {
+  random: "随机",
+  sequential: "顺序",
+  custom: "自选",
+  mistakes: "错题",
 };
 
 export function App() {
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [banks, setBanks] = useState<BankMeta[]>([]);
+  const [activeBankId, setActiveBankId] = useState("");
   const [health, setHealth] = useState<Health | null>(null);
-  const [activeView, setActiveView] = useState<"practice" | "bank" | "stats" | "mistakes" | "favorites" | "ai">("practice");
+  const [activeView, setActiveView] = useState<View>("practice");
   const [typeFilter, setTypeFilter] = useState<QuestionType | "all">("all");
+  const [practiceMode, setPracticeMode] = useState<PracticeMode>("random");
   const [currentId, setCurrentId] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [textAnswer, setTextAnswer] = useState("");
   const [fillAnswers, setFillAnswers] = useState<string[]>([]);
   const [bankSearch, setBankSearch] = useState("");
   const [result, setResult] = useState<ResultState | null>(null);
-  const [state, setState] = useState<UserState>(() => loadState());
+  const [userState, setUserState] = useState<UserState>(EMPTY_STATE);
   const [explanation, setExplanation] = useState("");
   const [explanationLoading, setExplanationLoading] = useState(false);
   const [chatInput, setChatInput] = useState("");
@@ -97,14 +143,11 @@ export function App() {
   const [authenticated, setAuthenticated] = useState<"loading" | true | false>("loading");
   const startedAt = useRef(Date.now());
   const currentIdRef = useRef("");
+  const booted = useRef(false);
 
   useEffect(() => {
     void bootstrap();
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  }, [state]);
 
   useEffect(() => {
     currentIdRef.current = currentId;
@@ -117,43 +160,50 @@ export function App() {
     setResult(null);
     setExplanation("");
     setChat([]);
-    const timer = window.setInterval(() => {
-      setElapsed(Math.round((Date.now() - startedAt.current) / 1000));
-    }, 1000);
+    const timer = window.setInterval(() => setElapsed(Math.round((Date.now() - startedAt.current) / 1000)), 1000);
     return () => window.clearInterval(timer);
   }, [currentId, questions]);
 
+  useEffect(() => {
+    if (!booted.current || !currentId) return;
+    void authJson("/api/me/progress", {
+      method: "POST",
+      body: JSON.stringify({ bankId: activeBankId, questionId: currentId, mode: practiceMode, typeFilter }),
+    }).then(setUserState);
+  }, [activeBankId, currentId, practiceMode, typeFilter]);
+
+  const activeBank = banks.find((bank) => bank.id === activeBankId);
   const filtered = useMemo(() => {
-    return typeFilter === "all" ? questions : questions.filter((question) => question.type === typeFilter);
-  }, [questions, typeFilter]);
+    const base = typeFilter === "all" ? questions : questions.filter((question) => question.type === typeFilter);
+    if (practiceMode === "mistakes") return base.filter((question) => userState.mistakes[question.id]);
+    return base;
+  }, [questions, typeFilter, practiceMode, userState.mistakes]);
 
   const current = useMemo(
     () => questions.find((question) => question.id === currentId) || filtered[0] || questions[0],
     [questions, currentId, filtered],
   );
-
   const currentIndex = useMemo(() => filtered.findIndex((question) => question.id === current?.id), [filtered, current]);
-
   const bankQuestions = useMemo(() => {
     const term = normalizeSearch(bankSearch);
-    if (!term) return filtered;
-    return filtered.filter((question) =>
-      normalizeSearch(`${question.excelRow} ${question.rawType} ${question.prompt} ${question.answer}`).includes(term),
+    const source = typeFilter === "all" ? questions : questions.filter((question) => question.type === typeFilter);
+    if (!term) return source;
+    return source.filter((question) =>
+      normalizeSearch(`${question.sourceIndex} ${question.rawType} ${question.prompt} ${question.answer}`).includes(term),
     );
-  }, [filtered, bankSearch]);
-
+  }, [questions, typeFilter, bankSearch]);
   const visibleMistakes = useMemo(
-    () => Object.keys(state.mistakes).map((id) => questions.find((question) => question.id === id)).filter(Boolean) as Question[],
-    [questions, state.mistakes],
+    () => Object.keys(userState.mistakes).map((id) => questions.find((question) => question.id === id)).filter(Boolean) as Question[],
+    [questions, userState.mistakes],
   );
-
   const favoriteQuestions = useMemo(
-    () => state.favorites.map((id) => questions.find((question) => question.id === id)).filter(Boolean) as Question[],
-    [questions, state.favorites],
+    () => userState.favorites.map((id) => questions.find((question) => question.id === id)).filter(Boolean) as Question[],
+    [questions, userState.favorites],
   );
 
-  const accuracy = state.stats.attempts ? Math.round((state.stats.correct / state.stats.attempts) * 100) : 0;
-  const isFavorite = current ? state.favorites.includes(current.id) : false;
+  const accuracy = userState.stats.attempts ? Math.round((userState.stats.correct / userState.stats.attempts) * 100) : 0;
+  const averageSeconds = userState.stats.attempts ? Math.round(userState.stats.totalSeconds / userState.stats.attempts) : 0;
+  const isFavorite = current ? userState.favorites.includes(current.id) : false;
 
   async function bootstrap() {
     try {
@@ -164,30 +214,56 @@ export function App() {
         return;
       }
       setAuthenticated(true);
-      const [questionPayload, healthPayload] = await Promise.all([
-        fetch("/api/questions").then((res) => res.json()),
+      const [me, bankPayload, healthPayload] = await Promise.all([
+        authJson("/api/me"),
+        authJson("/api/banks"),
         fetch("/api/health").then((res) => res.json()),
       ]);
-      setQuestions(questionPayload.questions);
-      setCurrentId(questionPayload.questions[0]?.id || "");
+      setUserState(me);
+      setBanks(bankPayload.banks);
       setHealth(healthPayload);
+      setPracticeMode(me.progress.mode || "random");
+      setTypeFilter(me.progress.typeFilter || "all");
+      const nextBankId = me.progress.lastBankId || bankPayload.defaultBankId;
+      await loadBank(nextBankId, me.progress.currentByBank[nextBankId] || me.progress.lastQuestionId);
+      booted.current = true;
     } catch {
       setAuthenticated(false);
     }
   }
 
-  async function authFetch(input: RequestInfo, init?: RequestInit): Promise<Response> {
-    const res = await fetch(input, init);
+  async function loadBank(bankId: string, preferredQuestionId = "") {
+    const payload = await authJson(`/api/questions?bankId=${encodeURIComponent(bankId)}`);
+    setQuestions(payload.questions);
+    setBanks(payload.banks);
+    setActiveBankId(payload.activeBankId);
+    const fallback = payload.questions[0]?.id || "";
+    setCurrentId(payload.questions.some((question: Question) => question.id === preferredQuestionId) ? preferredQuestionId : fallback);
+  }
+
+  async function authJson(input: RequestInfo, init?: RequestInit) {
+    const res = await fetch(input, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+    });
+    const payload = await res.json().catch(() => ({}));
     if (res.status === 401) {
       setAuthenticated(false);
       throw new Error("会话已过期，请重新登录");
     }
-    return res;
+    if (!res.ok) throw new Error(payload.error || "请求失败");
+    return payload;
   }
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
     setAuthenticated(false);
+  }
+
+  async function switchBank(bankId: string) {
+    const savedQuestion = userState.progress.currentByBank[bankId] || "";
+    await loadBank(bankId, savedQuestion);
+    setActiveView("practice");
   }
 
   function chooseQuestion(id: string) {
@@ -204,15 +280,13 @@ export function App() {
   function chooseNext() {
     const pool = filtered.length ? filtered : questions;
     const index = pool.findIndex((question) => question.id === current?.id);
-    const nextIndex = index >= 0 ? (index + 1) % pool.length : 0;
-    chooseQuestion(pool[nextIndex]?.id || pool[0]?.id);
+    chooseQuestion(pool[index >= 0 ? (index + 1) % pool.length : 0]?.id || pool[0]?.id);
   }
 
   function choosePrevious() {
     const pool = filtered.length ? filtered : questions;
     const index = pool.findIndex((question) => question.id === current?.id);
-    const previousIndex = index >= 0 ? (index - 1 + pool.length) % pool.length : pool.length - 1;
-    chooseQuestion(pool[previousIndex]?.id || pool[0]?.id);
+    chooseQuestion(pool[index >= 0 ? (index - 1 + pool.length) % pool.length : pool.length - 1]?.id || pool[0]?.id);
   }
 
   function toggleOption(key: string) {
@@ -230,7 +304,6 @@ export function App() {
 
   async function submitAnswer() {
     if (!current || result) return;
-
     if (current.type === "short") {
       await gradeShortAnswer();
       return;
@@ -242,51 +315,29 @@ export function App() {
         : current.type === "judge"
           ? selected.map((key) => current.options.find((option) => option.key === key)?.text || key).join("")
           : selected.join("");
-    if (current.type === "fill" && fillAnswers.some((answer) => !answer.trim())) {
-      setStatus("请填写所有空。");
-      return;
-    }
-    if (!userAnswer.trim()) {
-      setStatus("请先作答。");
-      return;
-    }
+    if (current.type === "fill" && fillAnswers.some((answer) => !answer.trim())) return setStatus("请填写所有空。");
+    if (!userAnswer.trim()) return setStatus("请先作答。");
 
     const correct =
       current.type === "multiple" || current.type === "single"
         ? normalizeChoice(userAnswer) === normalizeChoice(current.answer)
         : normalizeText(userAnswer) === normalizeText(current.answer);
-    const nextResult = {
-      correct,
-      message: correct ? "回答正确" : `回答错误，正确答案：${current.answer}`,
-    };
-    setResult(nextResult);
-    recordAttempt(current, userAnswer, correct);
+    setResult({ correct, message: correct ? "回答正确" : `回答错误，正确答案：${current.answer}` });
+    await recordAttempt(current, userAnswer, correct);
     void loadCachedExplanation(current);
   }
 
   async function gradeShortAnswer() {
-    if (!current || !textAnswer.trim()) {
-      setStatus("请先填写简答题答案。");
-      return;
-    }
-
+    if (!current || !textAnswer.trim()) return setStatus("请先填写答案。");
     setStatus("正在调用 AI 评分...");
     try {
-      const res = await authFetch(`/api/questions/${current.id}/grade`, {
+      const payload = await authJson(`/api/questions/${current.id}/grade`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ answer: textAnswer }),
       });
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "评分失败");
       const correct = Number(payload.score) >= 60;
-      setResult({
-        correct,
-        score: payload.score,
-        feedback: payload.feedback,
-        message: `AI 评分：${payload.score ?? 0} 分`,
-      });
-      recordAttempt(current, textAnswer, correct);
+      setResult({ correct, score: payload.score, feedback: payload.feedback, message: `AI 评分：${payload.score ?? 0} 分` });
+      await recordAttempt(current, textAnswer, correct);
       setStatus("");
       void loadCachedExplanation(current);
     } catch (error) {
@@ -294,49 +345,28 @@ export function App() {
     }
   }
 
-  function recordAttempt(question: Question, userAnswer: string, correct: boolean) {
+  async function recordAttempt(question: Question, userAnswer: string, correct: boolean) {
     const seconds = Math.max(1, Math.round((Date.now() - startedAt.current) / 1000));
-    setState((old) => {
-      const previous = old.stats.byQuestion[question.id] || { attempts: 0, correct: 0, totalSeconds: 0 };
-      const mistakes = { ...old.mistakes };
-      if (!correct) {
-        const mistake = mistakes[question.id] || { count: 0, lastAt: "", lastAnswer: "" };
-        mistakes[question.id] = {
-          count: mistake.count + 1,
-          lastAt: new Date().toISOString(),
-          lastAnswer: userAnswer,
-        };
-      }
-
-      return {
-        ...old,
-        mistakes,
-        stats: {
-          attempts: old.stats.attempts + 1,
-          correct: old.stats.correct + (correct ? 1 : 0),
-          totalSeconds: old.stats.totalSeconds + seconds,
-          byQuestion: {
-            ...old.stats.byQuestion,
-            [question.id]: {
-              attempts: previous.attempts + 1,
-              correct: previous.correct + (correct ? 1 : 0),
-              totalSeconds: previous.totalSeconds + seconds,
-            },
-          },
-        },
-      };
+    const nextState = await authJson("/api/me/attempt", {
+      method: "POST",
+      body: JSON.stringify({ questionId: question.id, answer: userAnswer, correct, seconds }),
     });
+    setUserState(nextState);
   }
 
-  function toggleFavorite() {
+  async function toggleFavorite() {
     if (!current) return;
-    setState((old) => {
-      const exists = old.favorites.includes(current.id);
-      return {
-        ...old,
-        favorites: exists ? old.favorites.filter((id) => id !== current.id) : [...old.favorites, current.id],
-      };
+    const nextState = await authJson("/api/me/favorite", {
+      method: "POST",
+      body: JSON.stringify({ questionId: current.id, favorite: !isFavorite }),
     });
+    setUserState(nextState);
+  }
+
+  async function handleCheckin() {
+    const nextState = await authJson("/api/me/checkin", { method: "POST" });
+    setUserState(nextState);
+    setStatus(nextState.checkin?.newlyChecked ? "签到成功，今天继续保持。" : "今天已经签到。");
   }
 
   async function loadExplanation(refresh = false) {
@@ -344,9 +374,7 @@ export function App() {
     setExplanationLoading(true);
     setStatus(refresh ? "正在重新生成解析..." : "正在读取 AI 解析...");
     try {
-      const res = await authFetch(`/api/questions/${current.id}/explanation${refresh ? "?refresh=1" : ""}`);
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "解析生成失败");
+      const payload = await authJson(`/api/questions/${current.id}/explanation${refresh ? "?refresh=1" : ""}`);
       setExplanation(payload.explanation);
       setStatus(payload.cached ? "已读取缓存解析。" : "已生成并缓存解析。");
       void refreshHealth();
@@ -359,7 +387,7 @@ export function App() {
 
   async function loadCachedExplanation(question: Question) {
     try {
-      const res = await authFetch(`/api/questions/${question.id}/explanation?cacheOnly=1`);
+      const res = await fetch(`/api/questions/${question.id}/explanation?cacheOnly=1`);
       if (!res.ok) return;
       const payload = await res.json();
       if (currentIdRef.current !== question.id) return;
@@ -367,7 +395,7 @@ export function App() {
       setStatus("已显示缓存解析。");
       void refreshHealth();
     } catch {
-      // Cached explanation loading is opportunistic after answering.
+      // Opportunistic cache display only.
     }
   }
 
@@ -380,13 +408,10 @@ export function App() {
     setChatInput("");
     setChatLoading(true);
     try {
-      const res = await authFetch(`/api/questions/${current.id}/chat`, {
+      const payload = await authJson(`/api/questions/${current.id}/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message, history: chat }),
       });
-      const payload = await res.json();
-      if (!res.ok) throw new Error(payload.error || "问答失败");
       setChat([...nextHistory, { role: "assistant", content: payload.answer }]);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "问答失败");
@@ -396,33 +421,23 @@ export function App() {
   }
 
   async function startPrewarm() {
-    const res = await authFetch("/api/explanations/prewarm", { method: "POST" });
-    const payload = await res.json();
+    const payload = await authJson("/api/explanations/prewarm", { method: "POST" });
     setStatus(payload.started ? "已开始后台初始化解析。" : "初始化任务已经在运行。");
     void refreshHealth();
   }
 
   async function refreshHealth() {
-    const payload = await fetch("/api/health").then((res) => res.json());
-    setHealth(payload);
+    setHealth(await fetch("/api/health").then((res) => res.json()));
   }
 
-  function resetLocalStats() {
-    if (!confirm("确定清空本地刷题记录、错题和收藏吗？")) return;
-    setState(EMPTY_STATE);
+  async function resetServerStats() {
+    if (!confirm("确定清空当前账号的刷题记录、错题和收藏吗？")) return;
+    setUserState(await authJson("/api/me/reset", { method: "POST" }));
   }
 
-  if (authenticated === "loading") {
-    return <div className="loading">正在加载...</div>;
-  }
-
-  if (!authenticated) {
-    return <LoginPage onLogin={bootstrap} />;
-  }
-
-  if (!current) {
-    return <div className="loading">正在加载题库...</div>;
-  }
+  if (authenticated === "loading") return <div className="loading">正在加载...</div>;
+  if (!authenticated) return <LoginPage onLogin={bootstrap} />;
+  if (!current) return <div className="loading">正在加载题库...</div>;
 
   return (
     <main className="app-shell">
@@ -431,8 +446,17 @@ export function App() {
           <Brain size={28} />
           <div>
             <strong>SolveMate</strong>
-            <span>{questions.length} 题</span>
+            <span>{userState.username || "local"} · {questions.length} 题</span>
           </div>
+        </div>
+
+        <div className="bank-switcher">
+          {banks.map((bank) => (
+            <button key={bank.id} className={bank.id === activeBankId ? "bank-tab active" : "bank-tab"} onClick={() => switchBank(bank.id)}>
+              {bank.isLegacy ? <History size={16} /> : <Library size={16} />}
+              <span>{bank.isLegacy ? "过往题库" : "当前题库"}</span>
+            </button>
+          ))}
         </div>
 
         <nav className="nav">
@@ -458,7 +482,7 @@ export function App() {
 
         <div className="sidebar-footer">
           <span>正确率 {accuracy}%</span>
-          <span>用时 {formatSeconds(state.stats.totalSeconds)}</span>
+          <span>平均 {formatSeconds(averageSeconds)}/题</span>
           <button className="logout-button" onClick={handleLogout}>
             <LogOut size={16} /> 退出
           </button>
@@ -467,15 +491,16 @@ export function App() {
 
       <section className="workspace">
         <header className="topbar">
-          <div className="filters">
-            {(["all", "single", "multiple", "judge", "fill", "short"] as const).map((type) => (
-              <button key={type} className={typeFilter === type ? "chip active" : "chip"} onClick={() => setTypeFilter(type)}>
-                {type === "all" ? "全部" : typeLabels[type]}
-              </button>
-            ))}
+          <div>
+            <div className="eyebrow">{activeBank?.name}</div>
+            <h1 className="page-title">{modeLabels[practiceMode]}练习</h1>
           </div>
           <div className="top-actions">
-            <button className="icon-button" title="随机刷题" onClick={chooseRandom}>
+            <button className={userState.checkins.checkedToday ? "action checked" : "action"} onClick={handleCheckin}>
+              <CalendarCheck size={18} />
+              {userState.checkins.checkedToday ? `连续 ${userState.checkins.streak} 天` : "签到"}
+            </button>
+            <button className="icon-button" title="随机一题" onClick={chooseRandom}>
               <Shuffle size={18} />
             </button>
             <button className="action" onClick={choosePrevious}>
@@ -488,6 +513,23 @@ export function App() {
           </div>
         </header>
 
+        <div className="control-strip">
+          <div className="segmented">
+            {(["random", "sequential", "custom", "mistakes"] as const).map((mode) => (
+              <button key={mode} className={practiceMode === mode ? "active" : ""} onClick={() => setPracticeMode(mode)}>
+                {modeLabels[mode]}
+              </button>
+            ))}
+          </div>
+          <div className="filters">
+            {(["all", "single", "multiple", "judge", "fill", "short"] as const).map((type) => (
+              <button key={type} className={typeFilter === type ? "chip active" : "chip"} onClick={() => setTypeFilter(type)}>
+                {type === "all" ? "全部" : typeLabels[type]}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {status && <div className="status-line">{status}</div>}
 
         {activeView === "practice" && (
@@ -495,26 +537,27 @@ export function App() {
             <section className="question-panel">
               <div className="question-meta">
                 <span>{current.rawType}</span>
-                <span>Excel 第 {current.excelRow} 行</span>
+                <span>#{current.sourceIndex}</span>
                 {currentIndex >= 0 && <span>{currentIndex + 1}/{filtered.length}</span>}
                 <span>
                   <Clock3 size={14} /> {formatSeconds(elapsed)}
                 </span>
               </div>
 
-              <h1>{current.prompt}</h1>
+              <h2 className="question-title">{current.prompt}</h2>
 
               {current.type !== "fill" && current.type !== "short" && (
                 <div className="options">
-                  {current.options.map((option) => {
-                    const checked = selected.includes(option.key);
-                    return (
-                      <button key={option.key} className={checked ? "option checked" : "option"} onClick={() => toggleOption(option.key)}>
-                        <span>{option.key}</span>
-                        <p>{option.text}</p>
-                      </button>
-                    );
-                  })}
+                  {current.options.map((option) => (
+                    <button
+                      key={option.key}
+                      className={selected.includes(option.key) ? "option checked" : "option"}
+                      onClick={() => toggleOption(option.key)}
+                    >
+                      <span>{option.key}</span>
+                      <p>{option.text}</p>
+                    </button>
+                  ))}
                 </div>
               )}
 
@@ -523,24 +566,14 @@ export function App() {
                   {fillAnswers.map((answer, index) => (
                     <label key={`${current.id}-${index}`} className="fill-input">
                       <span>空 {index + 1}</span>
-                      <input
-                        value={answer}
-                        placeholder={`填写第 ${index + 1} 空`}
-                        onChange={(event) => updateFillAnswer(index, event.target.value)}
-                      />
+                      <input value={answer} placeholder={`填写第 ${index + 1} 空`} onChange={(event) => updateFillAnswer(index, event.target.value)} />
                     </label>
                   ))}
                 </div>
               )}
 
               {current.type === "short" && (
-                <textarea
-                  className="answer-box"
-                  value={textAnswer}
-                  rows={7}
-                  placeholder="输入简答题答案，提交后调用 AI 快速评分"
-                  onChange={(event) => setTextAnswer(event.target.value)}
-                />
+                <textarea className="answer-box" value={textAnswer} rows={7} placeholder="输入答案，提交后调用 AI 快速评分" onChange={(event) => setTextAnswer(event.target.value)} />
               )}
 
               {result && (
@@ -569,80 +602,107 @@ export function App() {
               </div>
             </section>
 
-            <section className="ai-panel">
-              <div className="panel-title">
-                <Sparkles size={18} />
-                <strong>AI 解析</strong>
-                <button title="重新生成" className="icon-button compact" onClick={() => loadExplanation(true)}>
-                  <RefreshCcw size={16} />
-                </button>
-              </div>
-              <div className="explanation">
-                {explanationLoading ? "正在处理..." : explanation || "点击“AI 解析”读取缓存或生成解析。"}
-              </div>
-
-              <div className="panel-title qa-title">
-                <MessageSquareText size={18} />
-                <strong>追问</strong>
-              </div>
-              <div className="chat-log">
-                {chat.map((message, index) => (
-                  <div key={`${message.role}-${index}`} className={message.role === "user" ? "bubble user" : "bubble assistant"}>
-                    {message.content}
-                  </div>
-                ))}
-                {chatLoading && <div className="bubble assistant">正在回答...</div>}
-              </div>
-              <form className="chat-form" onSubmit={askAi}>
-                <input value={chatInput} placeholder="围绕本题继续提问" onChange={(event) => setChatInput(event.target.value)} />
-                <button className="primary" type="submit">
-                  发送
-                </button>
-              </form>
+            <section className="side-panel">
+              <MiniStats accuracy={accuracy} averageSeconds={averageSeconds} state={userState} />
+              <AiPanel
+                explanation={explanation}
+                explanationLoading={explanationLoading}
+                chat={chat}
+                chatInput={chatInput}
+                chatLoading={chatLoading}
+                onRefresh={() => loadExplanation(true)}
+                onAsk={askAi}
+                onChatInput={setChatInput}
+              />
             </section>
           </div>
         )}
 
         {activeView === "bank" && (
-          <QuestionBank
-            questions={bankQuestions}
-            total={filtered.length}
-            search={bankSearch}
-            currentId={current.id}
-            onSearch={setBankSearch}
-            onChoose={chooseQuestion}
-          />
+          <QuestionBank questions={bankQuestions} total={questions.length} search={bankSearch} currentId={current.id} onSearch={setBankSearch} onChoose={chooseQuestion} />
         )}
 
         {activeView === "stats" && (
-          <StatsView
-            questions={questions}
-            state={state}
-            accuracy={accuracy}
-            onReset={resetLocalStats}
-            onChoose={chooseQuestion}
-          />
+          <StatsView questions={questions} state={userState} accuracy={accuracy} averageSeconds={averageSeconds} onReset={resetServerStats} onChoose={chooseQuestion} />
         )}
 
         {activeView === "mistakes" && (
           <QuestionList
             title="错题记录"
             questions={visibleMistakes}
-            empty="还没有错题记录。"
+            empty="当前题库还没有错题记录。"
             onChoose={chooseQuestion}
-            renderMeta={(question) => `错误 ${state.mistakes[question.id]?.count || 0} 次`}
+            renderMeta={(question) => `错误 ${userState.mistakes[question.id]?.count || 0} 次`}
           />
         )}
 
-        {activeView === "favorites" && (
-          <QuestionList title="收藏题目" questions={favoriteQuestions} empty="还没有收藏题目。" onChoose={chooseQuestion} />
-        )}
+        {activeView === "favorites" && <QuestionList title="收藏题目" questions={favoriteQuestions} empty="当前题库还没有收藏题目。" onChoose={chooseQuestion} />}
 
-        {activeView === "ai" && (
-          <AiStatus health={health} onRefresh={refreshHealth} onPrewarm={startPrewarm} />
-        )}
+        {activeView === "ai" && <AiStatus health={health} onRefresh={refreshHealth} onPrewarm={startPrewarm} />}
       </section>
     </main>
+  );
+}
+
+function MiniStats({ accuracy, averageSeconds, state }: { accuracy: number; averageSeconds: number; state: UserState }) {
+  const todayKey = chinaDateKey();
+  const today = state.stats.daily[todayKey] || { attempts: 0, correct: 0, totalSeconds: 0 };
+  return (
+    <section className="mini-grid">
+      <Metric label="总正确率" value={`${accuracy}%`} icon={<Trophy size={18} />} />
+      <Metric label="今日作答" value={`${today.attempts}`} icon={<ListChecks size={18} />} />
+      <Metric label="平均用时" value={formatSeconds(averageSeconds)} icon={<Timer size={18} />} />
+    </section>
+  );
+}
+
+function AiPanel({
+  explanation,
+  explanationLoading,
+  chat,
+  chatInput,
+  chatLoading,
+  onRefresh,
+  onAsk,
+  onChatInput,
+}: {
+  explanation: string;
+  explanationLoading: boolean;
+  chat: ChatMessage[];
+  chatInput: string;
+  chatLoading: boolean;
+  onRefresh: () => void;
+  onAsk: (event: FormEvent) => void;
+  onChatInput: (value: string) => void;
+}) {
+  return (
+    <section className="ai-panel">
+      <div className="panel-title">
+        <Sparkles size={18} />
+        <strong>AI 解析</strong>
+        <button title="重新生成" className="icon-button compact" onClick={onRefresh}>
+          <RefreshCcw size={16} />
+        </button>
+      </div>
+      <div className="explanation">{explanationLoading ? "正在处理..." : explanation || "点击“AI 解析”读取缓存或生成解析。"}</div>
+
+      <div className="panel-title qa-title">
+        <MessageSquareText size={18} />
+        <strong>追问</strong>
+      </div>
+      <div className="chat-log">
+        {chat.map((message, index) => (
+          <div key={`${message.role}-${index}`} className={message.role === "user" ? "bubble user" : "bubble assistant"}>
+            {message.content}
+          </div>
+        ))}
+        {chatLoading && <div className="bubble assistant">正在回答...</div>}
+      </div>
+      <form className="chat-form" onSubmit={onAsk}>
+        <input value={chatInput} placeholder="围绕本题继续提问" onChange={(event) => onChatInput(event.target.value)} />
+        <button className="primary" type="submit">发送</button>
+      </form>
+    </section>
   );
 }
 
@@ -650,36 +710,42 @@ function StatsView({
   questions,
   state,
   accuracy,
+  averageSeconds,
   onReset,
   onChoose,
 }: {
   questions: Question[];
   state: UserState;
   accuracy: number;
+  averageSeconds: number;
   onReset: () => void;
   onChoose: (id: string) => void;
 }) {
+  const today = state.stats.daily[chinaDateKey()] || { attempts: 0, correct: 0, totalSeconds: 0 };
+  const month = state.stats.monthly[chinaMonthKey()] || { attempts: 0, correct: 0, totalSeconds: 0 };
   const practiced = Object.entries(state.stats.byQuestion)
     .map(([id, stat]) => ({ question: questions.find((item) => item.id === id), stat }))
     .filter((item) => item.question)
     .sort((a, b) => b.stat.attempts - a.stat.attempts)
-    .slice(0, 8);
+    .slice(0, 10);
 
   return (
     <section className="dashboard">
       <div className="metric-grid">
-        <Metric label="总作答" value={state.stats.attempts.toString()} />
-        <Metric label="正确率" value={`${accuracy}%`} />
-        <Metric label="累计用时" value={formatSeconds(state.stats.totalSeconds)} />
-        <Metric label="错题数" value={Object.keys(state.mistakes).length.toString()} />
+        <Metric label="总作答" value={state.stats.attempts.toString()} icon={<ListChecks size={18} />} />
+        <Metric label="总正确率" value={`${accuracy}%`} icon={<Trophy size={18} />} />
+        <Metric label="平均用时" value={formatSeconds(averageSeconds)} icon={<Timer size={18} />} />
+        <Metric label="连续签到" value={`${state.checkins.streak} 天`} icon={<CalendarCheck size={18} />} />
+        <Metric label="今日作答" value={today.attempts.toString()} icon={<Target size={18} />} />
+        <Metric label="今日正确率" value={formatAccuracy(today)} icon={<CheckCircle2 size={18} />} />
+        <Metric label="本月作答" value={month.attempts.toString()} icon={<BarChart3 size={18} />} />
+        <Metric label="错题数" value={Object.keys(state.mistakes).length.toString()} icon={<XCircle size={18} />} />
       </div>
 
       <div className="table-panel">
         <div className="table-head">
           <strong>高频练习</strong>
-          <button className="danger" onClick={onReset}>
-            清空本地记录
-          </button>
+          <button className="danger" onClick={onReset}>清空账号记录</button>
         </div>
         {practiced.length === 0 ? (
           <p className="empty">还没有作答记录。</p>
@@ -687,9 +753,7 @@ function StatsView({
           practiced.map(({ question, stat }) => (
             <button key={question!.id} className="row-item" onClick={() => onChoose(question!.id)}>
               <span>{question!.prompt}</span>
-              <em>
-                {stat.correct}/{stat.attempts} · {formatSeconds(stat.totalSeconds)}
-              </em>
+              <em>{stat.correct}/{stat.attempts} · 平均 {formatSeconds(Math.round(stat.totalSeconds / stat.attempts))}</em>
             </button>
           ))
         )}
@@ -718,13 +782,11 @@ function QuestionBank({
       <div className="bank-toolbar">
         <div>
           <strong>题库浏览</strong>
-          <span>
-            显示 {questions.length}/{total} 道
-          </span>
+          <span>显示 {questions.length}/{total} 道</span>
         </div>
         <label className="search-box">
           <Search size={18} />
-          <input value={search} placeholder="搜索题干、答案、题型或 Excel 行号" onChange={(event) => onSearch(event.target.value)} />
+          <input value={search} placeholder="搜索题干、答案、题型或编号" onChange={(event) => onSearch(event.target.value)} />
         </label>
       </div>
 
@@ -733,18 +795,11 @@ function QuestionBank({
       ) : (
         <div className="bank-list">
           {questions.map((question) => (
-            <button
-              key={question.id}
-              className={question.id === currentId ? "bank-row active" : "bank-row"}
-              onClick={() => onChoose(question.id)}
-            >
-              <span className="bank-row-index">#{question.excelRow}</span>
+            <button key={question.id} className={question.id === currentId ? "bank-row active" : "bank-row"} onClick={() => onChoose(question.id)}>
+              <span className="bank-row-index">#{question.sourceIndex}</span>
               <span className="bank-row-main">
                 <strong>{question.prompt}</strong>
-                <em>
-                  {question.rawType}
-                  {question.type === "fill" ? ` · ${getBlankCount(question)} 空` : ""}
-                </em>
+                <em>{question.rawType}{question.type === "fill" ? ` · ${getBlankCount(question)} 空` : ""}</em>
               </span>
               <span className="bank-row-answer">{question.answer}</span>
             </button>
@@ -759,21 +814,17 @@ function AiStatus({ health, onRefresh, onPrewarm }: { health: Health | null; onR
   return (
     <section className="dashboard">
       <div className="metric-grid">
-        <Metric label="AI 状态" value={health?.ai.configured ? "已配置" : "未配置"} />
-        <Metric label="缓存解析" value={`${health?.explanationCacheCount || 0}/${health?.questionCount || 0}`} />
-        <Metric label="预生成进度" value={`${health?.pregen.done || 0}/${health?.pregen.total || 0}`} />
-        <Metric label="失败数" value={`${health?.pregen.failed || 0}`} />
+        <Metric label="AI 状态" value={health?.ai.configured ? "已配置" : "未配置"} icon={<Sparkles size={18} />} />
+        <Metric label="缓存解析" value={`${health?.explanationCacheCount || 0}/${health?.questionCount || 0}`} icon={<Library size={18} />} />
+        <Metric label="预生成进度" value={`${health?.pregen.done || 0}/${health?.pregen.total || 0}`} icon={<RotateCw size={18} />} />
+        <Metric label="失败数" value={`${health?.pregen.failed || 0}`} icon={<XCircle size={18} />} />
       </div>
       <div className="table-panel">
         <div className="table-head">
           <strong>解析初始化</strong>
           <div className="inline-actions">
-            <button className="icon-text" onClick={onRefresh}>
-              <RotateCw size={18} /> 刷新
-            </button>
-            <button className="primary" onClick={onPrewarm}>
-              初始化全部解析
-            </button>
+            <button className="icon-text" onClick={onRefresh}><RotateCw size={18} /> 刷新</button>
+            <button className="primary" onClick={onPrewarm}>初始化全部解析</button>
           </div>
         </div>
         <p className="muted">模型：{health?.ai.model || "未设置"}，服务：{health?.ai.baseUrl || "未设置"}</p>
@@ -817,16 +868,17 @@ function QuestionList({
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
   return (
     <div className="metric">
-      <span>{label}</span>
+      <span>{icon}{label}</span>
       <strong>{value}</strong>
     </div>
   );
 }
 
 function LoginPage({ onLogin }: { onLogin: () => void }) {
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -840,7 +892,7 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password: password.trim() }),
+        body: JSON.stringify({ username: username.trim(), password: password.trim() }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "登录失败");
@@ -855,33 +907,15 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
   return (
     <div className="login-page">
       <form className="login-card" onSubmit={handleSubmit}>
-        <h1>
-          <Brain size={32} />
-          <span>SolveMate</span>
-        </h1>
-        <p>此站点已启用密码保护，请输入密码继续</p>
-        <input
-          type="password"
-          value={password}
-          placeholder="请输入密码"
-          autoFocus
-          onChange={(e) => setPassword(e.target.value)}
-        />
-        <button type="submit" disabled={loading}>
-          {loading ? "验证中..." : "进入"}
-        </button>
+        <h1><Brain size={32} /><span>SolveMate</span></h1>
+        <p>登录后会在服务端保存刷题记录</p>
+        <input value={username} placeholder="用户名（单用户可留空）" autoFocus onChange={(event) => setUsername(event.target.value)} />
+        <input type="password" value={password} placeholder="请输入密码" onChange={(event) => setPassword(event.target.value)} />
+        <button type="submit" disabled={loading}>{loading ? "验证中..." : "进入"}</button>
         {error && <div className="login-error">{error}</div>}
       </form>
     </div>
   );
-}
-
-function loadState(): UserState {
-  try {
-    return { ...EMPTY_STATE, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}") };
-  } catch {
-    return EMPTY_STATE;
-  }
 }
 
 function normalizeChoice(value: string) {
@@ -898,18 +932,30 @@ function normalizeSearch(value: string) {
 
 function getBlankCount(question: Question) {
   const promptBlanks = question.prompt.match(/（\s*）|\(\s*\)|_{2,}|【\s*】/g)?.length || 0;
-  const answerParts = question.answer
-    .split(/[;；]/)
-    .map((part) => part.trim())
-    .filter(Boolean).length;
+  const answerParts = question.answer.split(/[;；]/).map((part) => part.trim()).filter(Boolean).length;
   return Math.max(1, promptBlanks, answerParts);
 }
 
 function formatSeconds(seconds: number) {
+  if (!seconds) return "0s";
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
   if (minutes < 60) return `${minutes}m ${rest}s`;
   const hours = Math.floor(minutes / 60);
   return `${hours}h ${minutes % 60}m`;
+}
+
+function formatAccuracy(stat: PeriodStat) {
+  return stat.attempts ? `${Math.round((stat.correct / stat.attempts) * 100)}%` : "0%";
+}
+
+function chinaDateKey() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+function chinaMonthKey() {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit" }).formatToParts(new Date());
+  const data = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return `${data.year}-${data.month}`;
 }
