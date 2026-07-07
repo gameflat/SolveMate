@@ -211,6 +211,8 @@ export function App() {
   const averageSeconds = userState.stats.attempts ? Math.round(userState.stats.totalSeconds / userState.stats.attempts) : 0;
   const isFavorite = current ? userState.favorites.includes(current.id) : false;
   const checkinUnlocked = Boolean(userState.checkins.checkedToday || userState.checkins.unlocked);
+  const checkinReady = checkinUnlocked && !userState.checkins.checkedToday;
+  const checkinRequiredCorrect = userState.checkins.requiredCorrect || 10;
 
   async function bootstrap() {
     try {
@@ -415,7 +417,6 @@ export function App() {
       const payload = await res.json();
       if (currentIdRef.current !== question.id) return;
       setExplanation(payload.explanation);
-      setStatus("已显示缓存解析。");
       void refreshHealth();
     } catch {
       // Opportunistic cache display only.
@@ -520,13 +521,13 @@ export function App() {
           </div>
           <div className="top-actions">
             <button
-              className={userState.checkins.checkedToday ? "action checked" : checkinUnlocked ? "action" : "action locked"}
+              className={userState.checkins.checkedToday ? "action checked" : checkinReady ? "action checkin-ready" : "action locked"}
               onClick={handleCheckin}
               disabled={!checkinUnlocked}
-              title={checkinUnlocked ? "签到" : `今日答对 ${userState.checkins.requiredCorrect || 10} 题后可签到`}
+              title={checkinUnlocked ? "签到" : `刷对${checkinRequiredCorrect}题后解锁签到`}
             >
               <CalendarCheck size={18} />
-              {userState.checkins.checkedToday ? `连续 ${userState.checkins.streak} 天` : checkinUnlocked ? "签到" : `${userState.checkins.todayCorrect || 0}/${userState.checkins.requiredCorrect || 10}`}
+              {userState.checkins.checkedToday ? `连续 ${userState.checkins.streak} 天` : checkinReady ? "签到已解锁" : `刷对${checkinRequiredCorrect}题后解锁签到`}
             </button>
             <button className="icon-button" title="随机一题" onClick={chooseRandom}>
               <Shuffle size={18} />
@@ -891,9 +892,9 @@ function CheckinModal({
 
         <div className="modal-actions">
           <button className="action" onClick={onClose}>稍后</button>
-          <button className="primary checkin-primary" onClick={onCheckin} disabled={!unlocked}>
+          <button className={unlocked ? "primary checkin-primary checkin-ready" : "primary checkin-primary"} onClick={onCheckin} disabled={!unlocked}>
             <CalendarCheck size={18} />
-            {unlocked ? "完成签到" : "未解锁"}
+            {unlocked ? "完成签到" : `刷对${requiredCorrect}题后解锁签到`}
           </button>
         </div>
       </section>

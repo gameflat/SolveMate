@@ -264,6 +264,25 @@ button:active {
   padding: 0 14px;
 }
 
+.action.locked {
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.checkin-ready {
+  border-color: #15805f;
+  background: #e1f5ec;
+  color: #0b513f;
+  box-shadow: 0 0 0 0 rgba(21, 128, 95, 0.35);
+  animation: checkin-pulse 1.2s ease-in-out infinite;
+}
+
+.primary.checkin-ready {
+  border-color: #15805f;
+  background: #15805f;
+  color: #ffffff;
+}
+
 .primary {
   border-color: #216b5c;
   background: #216b5c;
@@ -1146,6 +1165,18 @@ button:active {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes checkin-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(21, 128, 95, 0.36);
+    transform: translateY(0);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(21, 128, 95, 0);
+    transform: translateY(-1px);
   }
 }
 
