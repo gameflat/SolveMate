@@ -1,6 +1,8 @@
 .DS_Store
 .env
-.cache/
+.cache/*
+!.cache/
+!.cache/ai-explanations.json
 .run/
 logs/
 node_modules/
