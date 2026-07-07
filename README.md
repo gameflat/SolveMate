@@ -48,7 +48,17 @@ VITE_ALLOWED_HOSTS=example.com,another.example.com
 
 ## Authentication
 
-When deploying SolveMate to a public network, configure one to three private users:
+When deploying SolveMate to a public network, configure one to three private users.
+
+Shared-password multi-user mode keeps usernames server-side and stores each username's data separately:
+
+```bash
+# .env
+AUTH_SHARED_USERS=alice,bob,carol
+AUTH_PASSWORD=shared_password
+```
+
+Per-user password mode is also supported:
 
 ```bash
 # .env
@@ -62,7 +72,9 @@ For a single-user setup, the old password-only mode is still supported:
 AUTH_PASSWORD=your_password
 ```
 
-- Leave `AUTH_USERS` and `AUTH_PASSWORD` empty to disable authentication (default local-only mode).
+- Leave `AUTH_SHARED_USERS`, `AUTH_USERS`, and `AUTH_PASSWORD` empty to disable authentication (default local-only mode).
+- `AUTH_SHARED_USERS` requires `AUTH_PASSWORD`; users must enter a username from that server-side list.
+- If `AUTH_USERS` is also set, those explicit username/password pairs are added too.
 - With only `AUTH_PASSWORD`, the login username can be left blank.
 - `AUTH_COOKIE_SECRET` signs session cookies. Leave empty to auto-generate (sessions reset on server restart).
 - `AUTH_SESSION_DAYS` controls session duration (default 7 days).

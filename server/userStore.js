@@ -8,6 +8,16 @@ const CHINA_TIME_ZONE = "Asia/Shanghai";
 
 export function buildConfiguredUsers() {
   const users = new Map();
+  const sharedPassword = process.env.AUTH_PASSWORD || "";
+  const sharedUsernames = parseList(process.env.AUTH_SHARED_USERS || process.env.AUTH_USERNAMES || "");
+
+  if (sharedPassword && sharedUsernames.length) {
+    const sharedPasswordHash = bcrypt.hashSync(sharedPassword, 10);
+    for (const username of sharedUsernames) {
+      users.set(username, sharedPasswordHash);
+    }
+  }
+
   const rawUsers = process.env.AUTH_USERS || "";
   for (const entry of rawUsers.split(",")) {
     const [rawUsername, ...passwordParts] = entry.split(":");
@@ -18,10 +28,17 @@ export function buildConfiguredUsers() {
     }
   }
 
-  if (process.env.AUTH_PASSWORD && !users.size) {
-    users.set(process.env.AUTH_USERNAME || "user", bcrypt.hashSync(process.env.AUTH_PASSWORD, 10));
+  if (sharedPassword && !users.size) {
+    users.set(process.env.AUTH_USERNAME || "user", bcrypt.hashSync(sharedPassword, 10));
   }
   return users;
+}
+
+function parseList(value) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 }
 
 export async function verifyConfiguredUser(configuredUsers, username, password) {

@@ -908,7 +908,7 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
     <div className="login-page">
       <form className="login-card" onSubmit={handleSubmit}>
         <h1><Brain size={32} /><span>SolveMate</span></h1>
-        <p>登录后会在服务端保存刷题记录</p>
+        <p>用户名由服务端配置，登录后会分别保存刷题记录</p>
         <input value={username} placeholder="用户名（单用户可留空）" autoFocus onChange={(event) => setUsername(event.target.value)} />
         <input type="password" value={password} placeholder="请输入密码" onChange={(event) => setPassword(event.target.value)} />
         <button type="submit" disabled={loading}>{loading ? "验证中..." : "进入"}</button>
