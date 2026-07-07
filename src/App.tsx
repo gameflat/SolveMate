@@ -22,6 +22,7 @@ import {
   Target,
   Timer,
   Trophy,
+  X,
   XCircle,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -557,7 +558,7 @@ export function App() {
           </div>
         </div>
 
-        {status && <div className="status-line">{status}</div>}
+        {status && <FloatingNotice message={status} onClose={() => setStatus("")} />}
 
         {activeView === "practice" && (
           <div className="practice-layout">
@@ -686,6 +687,29 @@ export function App() {
         />
       )}
     </main>
+  );
+}
+
+function FloatingNotice({ message, onClose }: { message: string; onClose: () => void }) {
+  const tone = noticeTone(message);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => onCloseRef.current(), 5000);
+    return () => window.clearTimeout(timer);
+  }, [message]);
+
+  return (
+    <div className={`floating-notice ${tone}`} role="status" aria-live="polite">
+      <span>{message}</span>
+      <button className="notice-close" onClick={onClose} title="关闭提示">
+        <X size={16} />
+      </button>
+    </div>
   );
 }
 
@@ -1111,13 +1135,13 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
 
   return (
     <div className="login-page">
+      {error && <FloatingNotice message={error} onClose={() => setError("")} />}
       <form className="login-card" onSubmit={handleSubmit}>
         <h1><Brain size={32} /><span>SolveMate</span></h1>
         <p>用户名由服务端配置，登录后会分别保存刷题记录</p>
         <input value={username} placeholder="用户名（单用户可留空）" autoFocus onChange={(event) => setUsername(event.target.value)} />
         <input type="password" value={password} placeholder="请输入密码" onChange={(event) => setPassword(event.target.value)} />
         <button type="submit" disabled={loading}>{loading ? "验证中..." : "进入"}</button>
-        {error && <div className="login-error">{error}</div>}
       </form>
     </div>
   );
@@ -1153,6 +1177,13 @@ function formatSeconds(seconds: number) {
 
 function formatAccuracy(stat: PeriodStat) {
   return stat.attempts ? `${Math.round((stat.correct / stat.attempts) * 100)}%` : "0%";
+}
+
+function noticeTone(message: string) {
+  if (/失败|错误|过期|拒绝|未配置|未解锁/.test(message)) return "danger";
+  if (/请|后可|已经|运行/.test(message)) return "warning";
+  if (/成功|已读取|已生成|已显示|已开始/.test(message)) return "success";
+  return "info";
 }
 
 function chinaDateKey() {
