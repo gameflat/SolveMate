@@ -5,6 +5,7 @@ import path from "node:path";
 const STORE_PATH = path.join(process.cwd(), "data", "user-store.json");
 const MAX_RECENT_ATTEMPTS = 120;
 const CHINA_TIME_ZONE = "Asia/Shanghai";
+const CHECKIN_REQUIRED_CORRECT = 10;
 
 export function buildConfiguredUsers() {
   const users = new Map();
@@ -148,6 +149,16 @@ export async function checkIn(username) {
   const user = getOrCreateUser(store, username);
   const today = chinaDateKey(new Date());
   const alreadyChecked = Boolean(user.checkins[today]);
+  const todayStats = user.stats.daily[today] || { attempts: 0, correct: 0, totalSeconds: 0 };
+  if (!alreadyChecked && todayStats.correct < CHECKIN_REQUIRED_CORRECT) {
+    const error = new Error(`今日答对 ${CHECKIN_REQUIRED_CORRECT} 题后可签到`);
+    error.status = 403;
+    error.details = {
+      requiredCorrect: CHECKIN_REQUIRED_CORRECT,
+      todayCorrect: todayStats.correct,
+    };
+    throw error;
+  }
   if (!alreadyChecked) {
     user.checkins[today] = new Date().toISOString();
   }
@@ -185,6 +196,9 @@ function publicUserState(user) {
       checkedToday: Boolean(user.checkins[chinaDateKey(new Date())]),
       streak: checkinStreak(user.checkins),
       days: Object.keys(user.checkins).sort(),
+      requiredCorrect: CHECKIN_REQUIRED_CORRECT,
+      todayCorrect: user.stats.daily[chinaDateKey(new Date())]?.correct || 0,
+      unlocked: Boolean(user.checkins[chinaDateKey(new Date())]) || (user.stats.daily[chinaDateKey(new Date())]?.correct || 0) >= CHECKIN_REQUIRED_CORRECT,
     },
   };
 }

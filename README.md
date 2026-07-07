@@ -17,6 +17,7 @@ Current banks:
 - Fill-in-the-blank questions render one input per blank
 - Server-side account state for stats, progress, mistake records, and favorites
 - Daily, weekly, monthly, per-question, average-time, and check-in statistics using China time
+- Check-in unlocks after 10 correct answers on the current China-time day
 - AI explanation generation with local cache and manual regeneration
 - Cached explanations are shown automatically after answering
 - AI follow-up Q&A for each question

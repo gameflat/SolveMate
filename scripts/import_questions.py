@@ -67,7 +67,7 @@ def load_old_excel_bank():
                 options.append({"key": key, "text": text})
 
         answer = clean(row[9] if len(row) > 9 else "") or clean(row[2] if len(row) > 2 else "")
-        question_id = stable_id("legacy-competition-20240522", excel_row, raw_type, prompt)
+        question_id = hashlib.sha1(f"{excel_row}:{raw_type}:{prompt}".encode()).hexdigest()[:12]
         questions.append(
             {
                 "id": question_id,

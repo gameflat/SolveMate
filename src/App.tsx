@@ -5,6 +5,8 @@ import {
   BookmarkCheck,
   Brain,
   CalendarCheck,
+  ChevronLeft,
+  ChevronRight,
   CheckCircle2,
   Clock3,
   History,
@@ -72,7 +74,7 @@ type UserState = {
     mode: PracticeMode;
     typeFilter: QuestionType | "all";
   };
-  checkins: { checkedToday: boolean; streak: number; days: string[] };
+  checkins: { checkedToday: boolean; streak: number; days: string[]; requiredCorrect?: number; todayCorrect?: number; unlocked?: boolean };
 };
 
 type ResultState = {
@@ -141,9 +143,12 @@ export function App() {
   const [status, setStatus] = useState("");
   const [elapsed, setElapsed] = useState(0);
   const [authenticated, setAuthenticated] = useState<"loading" | true | false>("loading");
+  const [showCheckinModal, setShowCheckinModal] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => chinaMonthKey());
   const startedAt = useRef(Date.now());
   const currentIdRef = useRef("");
   const booted = useRef(false);
+  const promptedCheckinKey = useRef("");
 
   useEffect(() => {
     void bootstrap();
@@ -204,6 +209,7 @@ export function App() {
   const accuracy = userState.stats.attempts ? Math.round((userState.stats.correct / userState.stats.attempts) * 100) : 0;
   const averageSeconds = userState.stats.attempts ? Math.round(userState.stats.totalSeconds / userState.stats.attempts) : 0;
   const isFavorite = current ? userState.favorites.includes(current.id) : false;
+  const checkinUnlocked = Boolean(userState.checkins.checkedToday || userState.checkins.unlocked);
 
   async function bootstrap() {
     try {
@@ -224,6 +230,13 @@ export function App() {
       setHealth(healthPayload);
       setPracticeMode(me.progress.mode || "random");
       setTypeFilter(me.progress.typeFilter || "all");
+      if (!me.checkins.checkedToday) {
+        const promptKey = `${me.username || "local"}:${chinaDateKey()}`;
+        if (promptedCheckinKey.current !== promptKey) {
+          promptedCheckinKey.current = promptKey;
+          setShowCheckinModal(true);
+        }
+      }
       const nextBankId = me.progress.lastBankId || bankPayload.defaultBankId;
       await loadBank(nextBankId, me.progress.currentByBank[nextBankId] || me.progress.lastQuestionId);
       booted.current = true;
@@ -364,9 +377,18 @@ export function App() {
   }
 
   async function handleCheckin() {
-    const nextState = await authJson("/api/me/checkin", { method: "POST" });
-    setUserState(nextState);
-    setStatus(nextState.checkin?.newlyChecked ? "签到成功，今天继续保持。" : "今天已经签到。");
+    if (!checkinUnlocked) {
+      setStatus(`今日答对 ${userState.checkins.requiredCorrect || 10} 题后可签到。`);
+      return;
+    }
+    try {
+      const nextState = await authJson("/api/me/checkin", { method: "POST" });
+      setUserState(nextState);
+      setShowCheckinModal(false);
+      setStatus(nextState.checkin?.newlyChecked ? "签到成功，今天继续保持。" : "今天已经签到。");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "签到失败");
+    }
   }
 
   async function loadExplanation(refresh = false) {
@@ -496,9 +518,14 @@ export function App() {
             <h1 className="page-title">{modeLabels[practiceMode]}练习</h1>
           </div>
           <div className="top-actions">
-            <button className={userState.checkins.checkedToday ? "action checked" : "action"} onClick={handleCheckin}>
+            <button
+              className={userState.checkins.checkedToday ? "action checked" : checkinUnlocked ? "action" : "action locked"}
+              onClick={handleCheckin}
+              disabled={!checkinUnlocked}
+              title={checkinUnlocked ? "签到" : `今日答对 ${userState.checkins.requiredCorrect || 10} 题后可签到`}
+            >
               <CalendarCheck size={18} />
-              {userState.checkins.checkedToday ? `连续 ${userState.checkins.streak} 天` : "签到"}
+              {userState.checkins.checkedToday ? `连续 ${userState.checkins.streak} 天` : checkinUnlocked ? "签到" : `${userState.checkins.todayCorrect || 0}/${userState.checkins.requiredCorrect || 10}`}
             </button>
             <button className="icon-button" title="随机一题" onClick={chooseRandom}>
               <Shuffle size={18} />
@@ -623,7 +650,16 @@ export function App() {
         )}
 
         {activeView === "stats" && (
-          <StatsView questions={questions} state={userState} accuracy={accuracy} averageSeconds={averageSeconds} onReset={resetServerStats} onChoose={chooseQuestion} />
+          <StatsView
+            questions={questions}
+            state={userState}
+            accuracy={accuracy}
+            averageSeconds={averageSeconds}
+            calendarMonth={calendarMonth}
+            onCalendarMonth={setCalendarMonth}
+            onReset={resetServerStats}
+            onChoose={chooseQuestion}
+          />
         )}
 
         {activeView === "mistakes" && (
@@ -640,6 +676,15 @@ export function App() {
 
         {activeView === "ai" && <AiStatus health={health} onRefresh={refreshHealth} onPrewarm={startPrewarm} />}
       </section>
+      {showCheckinModal && (
+        <CheckinModal
+          state={userState}
+          calendarMonth={calendarMonth}
+          onCalendarMonth={setCalendarMonth}
+          onCheckin={handleCheckin}
+          onClose={() => setShowCheckinModal(false)}
+        />
+      )}
     </main>
   );
 }
@@ -711,6 +756,8 @@ function StatsView({
   state,
   accuracy,
   averageSeconds,
+  calendarMonth,
+  onCalendarMonth,
   onReset,
   onChoose,
 }: {
@@ -718,6 +765,8 @@ function StatsView({
   state: UserState;
   accuracy: number;
   averageSeconds: number;
+  calendarMonth: string;
+  onCalendarMonth: (month: string) => void;
   onReset: () => void;
   onChoose: (id: string) => void;
 }) {
@@ -742,6 +791,14 @@ function StatsView({
         <Metric label="错题数" value={Object.keys(state.mistakes).length.toString()} icon={<XCircle size={18} />} />
       </div>
 
+      <ActivityCalendar
+        title="练习日历"
+        state={state}
+        monthKey={calendarMonth}
+        onMonthChange={onCalendarMonth}
+        mode="stats"
+      />
+
       <div className="table-panel">
         <div className="table-head">
           <strong>高频练习</strong>
@@ -757,6 +814,154 @@ function StatsView({
             </button>
           ))
         )}
+      </div>
+    </section>
+  );
+}
+
+function CheckinModal({
+  state,
+  calendarMonth,
+  onCalendarMonth,
+  onCheckin,
+  onClose,
+}: {
+  state: UserState;
+  calendarMonth: string;
+  onCalendarMonth: (month: string) => void;
+  onCheckin: () => void;
+  onClose: () => void;
+}) {
+  const today = state.stats.daily[chinaDateKey()] || { attempts: 0, correct: 0, totalSeconds: 0 };
+  const requiredCorrect = state.checkins.requiredCorrect || 10;
+  const todayCorrect = state.checkins.todayCorrect ?? today.correct;
+  const unlocked = Boolean(state.checkins.checkedToday || state.checkins.unlocked);
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="checkin-modal" role="dialog" aria-modal="true" aria-labelledby="checkin-title">
+        <div className="checkin-hero">
+          <div>
+            <span className="eyebrow">今日签到</span>
+            <h2 id="checkin-title">先打卡，再开始练习</h2>
+          </div>
+          <div className="streak-badge">
+            <CalendarCheck size={20} />
+            <strong>{state.checkins.streak}</strong>
+            <span>连续天数</span>
+          </div>
+        </div>
+
+        <ActivityCalendar
+          title="本月记录"
+          state={state}
+          monthKey={calendarMonth}
+          onMonthChange={onCalendarMonth}
+          mode="checkin"
+        />
+
+        <div className="checkin-summary">
+          <span>今日作答 {today.attempts} 题</span>
+          <span>答对进度 {Math.min(todayCorrect, requiredCorrect)}/{requiredCorrect}</span>
+          <span>今日用时 {formatSeconds(today.totalSeconds)}</span>
+        </div>
+
+        <div className="modal-actions">
+          <button className="action" onClick={onClose}>稍后</button>
+          <button className="primary checkin-primary" onClick={onCheckin} disabled={!unlocked}>
+            <CalendarCheck size={18} />
+            {unlocked ? "完成签到" : "未解锁"}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ActivityCalendar({
+  title,
+  state,
+  monthKey,
+  onMonthChange,
+  mode,
+}: {
+  title: string;
+  state: UserState;
+  monthKey: string;
+  onMonthChange: (month: string) => void;
+  mode: "stats" | "checkin";
+}) {
+  const days = calendarDays(monthKey);
+  const checkedDays = new Set(state.checkins.days);
+  const monthStats = days.reduce(
+    (total, day) => {
+      if (!day.inMonth) return total;
+      const stat = state.stats.daily[day.key] || { attempts: 0, correct: 0, totalSeconds: 0 };
+      total.attempts += stat.attempts;
+      total.correct += stat.correct;
+      total.totalSeconds += stat.totalSeconds;
+      return total;
+    },
+    { attempts: 0, correct: 0, totalSeconds: 0 },
+  );
+
+  function shiftMonth(delta: number) {
+    onMonthChange(addMonths(monthKey, delta));
+  }
+
+  return (
+    <section className={mode === "stats" ? "calendar-panel table-panel" : "calendar-panel compact"}>
+      <div className="calendar-head">
+        <div>
+          <strong>{title}</strong>
+          <span>{monthKey} · 本月 {monthStats.attempts} 题 · 正确率 {formatAccuracy(monthStats)}</span>
+        </div>
+        <div className="calendar-nav">
+          <button className="icon-button compact" title="上个月" onClick={() => shiftMonth(-1)}>
+            <ChevronLeft size={16} />
+          </button>
+          <button className="icon-button compact" title="下个月" onClick={() => shiftMonth(1)}>
+            <ChevronRight size={16} />
+          </button>
+        </div>
+      </div>
+
+      <div className="calendar-weekdays">
+        {["一", "二", "三", "四", "五", "六", "日"].map((day) => (
+          <span key={day}>{day}</span>
+        ))}
+      </div>
+      <div className="calendar-grid">
+        {days.map((day) => {
+          const stat = state.stats.daily[day.key] || { attempts: 0, correct: 0, totalSeconds: 0 };
+          const checked = checkedDays.has(day.key);
+          const intensity = stat.attempts >= 20 ? 4 : stat.attempts >= 10 ? 3 : stat.attempts >= 3 ? 2 : stat.attempts >= 1 ? 1 : 0;
+          return (
+            <div
+              key={day.key}
+              className={[
+                "calendar-day",
+                day.inMonth ? "" : "outside",
+                day.key === chinaDateKey() ? "today" : "",
+                checked ? "checked" : "",
+                `level-${intensity}`,
+              ].join(" ")}
+              title={`${day.key}：${stat.attempts} 题，正确率 ${formatAccuracy(stat)}，用时 ${formatSeconds(stat.totalSeconds)}${checked ? "，已签到" : ""}`}
+            >
+              <span>{day.day}</span>
+              {checked && <CalendarCheck size={13} />}
+              {stat.attempts > 0 && <em>{stat.attempts}</em>}
+            </div>
+          );
+        })}
+      </div>
+      <div className="calendar-legend">
+        <span>少</span>
+        <i className="level-0" />
+        <i className="level-1" />
+        <i className="level-2" />
+        <i className="level-3" />
+        <i className="level-4" />
+        <span>多</span>
       </div>
     </section>
   );
@@ -828,7 +1033,7 @@ function AiStatus({ health, onRefresh, onPrewarm }: { health: Health | null; onR
           </div>
         </div>
         <p className="muted">模型：{health?.ai.model || "未设置"}，服务：{health?.ai.baseUrl || "未设置"}</p>
-        {health?.pregen.running && <p className="muted">后台任务运行中，已处理 {health.pregen.done} 道题。</p>}
+        {health?.pregen.running && <p className="muted">后台任务运行中，已处理 {health.pregen.done} 道题，其中跳过缓存 {health.pregen.cached} 道。</p>}
         {health?.pregen.lastError && <p className="error-text">{health.pregen.lastError}</p>}
       </div>
     </section>
@@ -958,4 +1163,28 @@ function chinaMonthKey() {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit" }).formatToParts(new Date());
   const data = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
   return `${data.year}-${data.month}`;
+}
+
+function calendarDays(monthKey: string) {
+  const [year, month] = monthKey.split("-").map(Number);
+  const first = new Date(Date.UTC(year, month - 1, 1));
+  const firstWeekday = first.getUTCDay() || 7;
+  const start = new Date(first);
+  start.setUTCDate(start.getUTCDate() - firstWeekday + 1);
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(start);
+    date.setUTCDate(start.getUTCDate() + index);
+    const key = date.toISOString().slice(0, 10);
+    return {
+      key,
+      day: date.getUTCDate(),
+      inMonth: date.getUTCMonth() === month - 1,
+    };
+  });
+}
+
+function addMonths(monthKey: string, delta: number) {
+  const [year, month] = monthKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1 + delta, 1));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
 }
