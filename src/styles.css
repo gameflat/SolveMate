@@ -187,7 +187,8 @@ button:active {
 
 .topbar {
   position: relative;
-  justify-content: space-between;
+  min-height: 54px;
+  justify-content: center;
   gap: 12px;
   margin-bottom: 10px;
 }
@@ -198,20 +199,12 @@ button:active {
 
 .title-block {
   min-width: 0;
-}
-
-.practice-topbar {
-  min-height: 54px;
-  justify-content: center;
-}
-
-.practice-topbar .title-block {
   max-width: min(560px, calc(100% - 96px));
   margin: 0 auto;
   text-align: center;
 }
 
-.practice-topbar .top-actions {
+.topbar .top-actions {
   position: absolute;
   top: 50%;
   right: 0;
@@ -1539,20 +1532,17 @@ button:active {
   }
 
   .topbar {
-    gap: 8px;
-  }
-
-  .practice-topbar {
     min-height: 48px;
     align-items: center;
     flex-direction: row;
+    gap: 8px;
   }
 
-  .practice-topbar .title-block {
+  .topbar .title-block {
     max-width: calc(100% - 76px);
   }
 
-  .practice-topbar .top-actions {
+  .topbar .top-actions {
     right: 0;
   }
 
@@ -1597,7 +1587,7 @@ button:active {
   }
 
   .top-actions {
-    justify-content: flex-start;
+    justify-content: flex-end;
   }
 
   .filters {
