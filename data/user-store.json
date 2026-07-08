@@ -22,9 +22,9 @@
         }
       },
       "stats": {
-        "attempts": 3,
-        "correct": 1,
-        "totalSeconds": 11,
+        "attempts": 4,
+        "correct": 2,
+        "totalSeconds": 14,
         "byQuestion": {
           "b65cbd3c6c76": {
             "attempts": 1,
@@ -46,30 +46,46 @@
             "totalSeconds": 1,
             "lastAt": "2026-07-08T03:42:20.816Z",
             "lastAnswer": "错误"
+          },
+          "96a737cd8187": {
+            "attempts": 1,
+            "correct": 1,
+            "totalSeconds": 3,
+            "lastAt": "2026-07-08T03:44:00.723Z",
+            "lastAnswer": "错误"
           }
         },
         "daily": {
           "2026-07-08": {
-            "attempts": 3,
-            "correct": 1,
-            "totalSeconds": 11
+            "attempts": 4,
+            "correct": 2,
+            "totalSeconds": 14
           }
         },
         "weekly": {
           "2026-07-06": {
-            "attempts": 3,
-            "correct": 1,
-            "totalSeconds": 11
+            "attempts": 4,
+            "correct": 2,
+            "totalSeconds": 14
           }
         },
         "monthly": {
           "2026-07": {
-            "attempts": 3,
-            "correct": 1,
-            "totalSeconds": 11
+            "attempts": 4,
+            "correct": 2,
+            "totalSeconds": 14
           }
         },
         "recentAttempts": [
+          {
+            "questionId": "96a737cd8187",
+            "bankId": "mto-loru-202103",
+            "correct": true,
+            "seconds": 3,
+            "answer": "错误",
+            "at": "2026-07-08T03:44:00.723Z",
+            "dayKey": "2026-07-08"
+          },
           {
             "questionId": "0df629e397ce",
             "bankId": "mto-loru-202103",
@@ -101,16 +117,16 @@
       },
       "progress": {
         "lastBankId": "mto-loru-202103",
-        "lastQuestionId": "b65cbd3c6c76",
+        "lastQuestionId": "d892a28fa87f",
         "currentByBank": {
-          "mto-loru-202103": "b65cbd3c6c76",
+          "mto-loru-202103": "d892a28fa87f",
           "legacy-competition-20240522": "dd82d1caa64d"
         },
         "mode": "random",
         "typeFilter": "all",
         "sessions": {
           "mto-loru-202103:random:all": {
-            "currentQuestionId": "b65cbd3c6c76",
+            "currentQuestionId": "d892a28fa87f",
             "order": [
               "c057071b563b",
               "ea96c3d0fd0d",
@@ -1243,8 +1259,8 @@
               "6eab0fe3d9d1",
               "41150f49a5f1"
             ],
-            "index": 131,
-            "updatedAt": "2026-07-08T03:42:48.751Z"
+            "index": 343,
+            "updatedAt": "2026-07-08T04:05:40.639Z"
           },
           "legacy-competition-20240522:random:all": {
             "currentQuestionId": "dd82d1caa64d",
@@ -3072,7 +3088,7 @@
               "e5d9f6ee1183"
             ],
             "index": 248,
-            "updatedAt": "2026-07-08T03:39:37.693Z"
+            "updatedAt": "2026-07-08T04:03:50.194Z"
           }
         }
       },

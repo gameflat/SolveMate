@@ -809,7 +809,10 @@ export function App() {
             questions={visibleMistakes}
             empty="当前题库还没有错题记录。"
             onChoose={chooseQuestion}
-            renderMeta={(question) => `错误 ${userState.mistakes[question.id]?.count || 0} 次`}
+            state={userState}
+            currentId={current.id}
+            variant="mistakes"
+            extraMeta={(question) => `错误 ${userState.mistakes[question.id]?.count || 0} 次`}
             emptyIcon={<XCircle size={22} />}
             actionLabel="继续练习"
             onEmptyAction={() => setActiveView("practice")}
@@ -822,6 +825,9 @@ export function App() {
             questions={favoriteQuestions}
             empty="当前题库还没有收藏题目。"
             onChoose={chooseQuestion}
+            state={userState}
+            currentId={current.id}
+            variant="favorites"
             emptyIcon={<Bookmark size={22} />}
             actionLabel="浏览题库"
             onEmptyAction={() => setActiveView("bank")}
@@ -1160,30 +1166,7 @@ function QuestionBank({
       {questions.length === 0 ? (
         <EmptyState icon={<Search size={22} />} title="没有匹配的题目" description="换一个关键词，或清空搜索后继续浏览题库。" />
       ) : (
-        <div className="bank-list">
-          {questions.map((question) => {
-            const answered = Boolean(state.stats.byQuestion[question.id]?.attempts);
-            const favorite = state.favorites.includes(question.id);
-            const mistake = Boolean(state.mistakes[question.id]);
-            return (
-              <button key={question.id} className={question.id === currentId ? "bank-row active" : "bank-row"} onClick={() => onChoose(question.id)}>
-                <span className="bank-row-index">#{question.sourceIndex}</span>
-                <span className="bank-row-main">
-                  <strong>{question.prompt}</strong>
-                  <em>{question.rawType}{question.type === "fill" ? ` · ${getBlankCount(question)} 空` : ""}</em>
-                </span>
-                <span className="bank-row-tags">
-                  <span className={`type-badge ${question.type}`}>{typeLabels[question.type]}</span>
-                  {question.id === currentId && <span className="state-badge current">当前</span>}
-                  {answered && <span className="state-badge answered">已答</span>}
-                  {mistake && <span className="state-badge mistake">错题</span>}
-                  {favorite && <span className="state-badge favorite">收藏</span>}
-                </span>
-                <span className="bank-row-answer">{question.answer}</span>
-              </button>
-            );
-          })}
-        </div>
+        <QuestionRows questions={questions} state={state} currentId={currentId} onChoose={onChoose} />
       )}
     </section>
   );
@@ -1219,7 +1202,10 @@ function QuestionList({
   questions,
   empty,
   onChoose,
-  renderMeta,
+  state,
+  currentId,
+  variant = "default",
+  extraMeta,
   emptyIcon,
   actionLabel,
   onEmptyAction,
@@ -1228,7 +1214,10 @@ function QuestionList({
   questions: Question[];
   empty: string;
   onChoose: (id: string) => void;
-  renderMeta?: (question: Question) => string;
+  state: UserState;
+  currentId: string;
+  variant?: "default" | "mistakes" | "favorites";
+  extraMeta?: (question: Question) => string;
   emptyIcon?: ReactNode;
   actionLabel?: string;
   onEmptyAction?: () => void;
@@ -1242,14 +1231,85 @@ function QuestionList({
       {questions.length === 0 ? (
         <EmptyState icon={emptyIcon || <Library size={22} />} title={empty} description="这里会随着你的练习记录自动更新。" actionLabel={actionLabel} onAction={onEmptyAction} />
       ) : (
-        questions.map((question) => (
-          <button key={question.id} className="row-item" onClick={() => onChoose(question.id)}>
-            <span>{question.prompt}</span>
-            <em>{renderMeta?.(question) || question.rawType}</em>
-          </button>
-        ))
+        <QuestionRows questions={questions} state={state} currentId={currentId} variant={variant} extraMeta={extraMeta} onChoose={onChoose} />
       )}
     </section>
+  );
+}
+
+function QuestionRows({
+  questions,
+  state,
+  currentId,
+  variant = "default",
+  extraMeta,
+  onChoose,
+}: {
+  questions: Question[];
+  state: UserState;
+  currentId: string;
+  variant?: "default" | "mistakes" | "favorites";
+  extraMeta?: (question: Question) => string;
+  onChoose: (id: string) => void;
+}) {
+  return (
+    <div className="question-list">
+      {questions.map((question) => (
+        <QuestionRow
+          key={question.id}
+          question={question}
+          state={state}
+          active={question.id === currentId}
+          variant={variant}
+          extraMeta={extraMeta?.(question)}
+          onChoose={onChoose}
+        />
+      ))}
+    </div>
+  );
+}
+
+function QuestionRow({
+  question,
+  state,
+  active,
+  variant,
+  extraMeta,
+  onChoose,
+}: {
+  question: Question;
+  state: UserState;
+  active: boolean;
+  variant: "default" | "mistakes" | "favorites";
+  extraMeta?: string;
+  onChoose: (id: string) => void;
+}) {
+  const stat = state.stats.byQuestion[question.id];
+  const answered = Boolean(stat?.attempts);
+  const favorite = state.favorites.includes(question.id);
+  const mistake = Boolean(state.mistakes[question.id]);
+  const tags = [
+    <span key="type" className={`type-badge ${question.type}`}>{typeLabels[question.type]}</span>,
+    question.type === "fill" ? <span key="blank" className="state-badge subtle">{getBlankCount(question)} 空</span> : null,
+    active ? <span key="current" className="state-badge current">当前</span> : null,
+    answered ? <span key="answered" className="state-badge answered">已答 {stat?.attempts || 0}</span> : null,
+    mistake ? <span key="mistake" className="state-badge mistake">{variant === "mistakes" ? `错 ${state.mistakes[question.id]?.count || 0}` : "错题"}</span> : null,
+    favorite ? <span key="favorite" className="state-badge favorite">收藏</span> : null,
+  ].filter(Boolean);
+  const metaItems = extraMeta ? [extraMeta] : [];
+  return (
+    <button className={active ? "question-row active" : "question-row"} onClick={() => onChoose(question.id)}>
+      <span className="question-row-index">#{question.sourceIndex}</span>
+      <span className="question-row-body">
+        <strong>{question.prompt}</strong>
+        <span className="question-row-tags">{tags}</span>
+      </span>
+      {metaItems.length > 0 && (
+        <span className="question-row-meta">
+          {metaItems.map((item) => <em key={item}>{item}</em>)}
+        </span>
+      )}
+    </button>
   );
 }
 
