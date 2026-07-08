@@ -18,7 +18,7 @@ else
 fi
 
 for port in 8787; do
-  PIDS="$(lsof -ti tcp:"$port" 2>/dev/null || true)"
+  PIDS="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
   if [[ -n "$PIDS" ]]; then
     echo "Port $port: in use by PID(s) $PIDS"
   else

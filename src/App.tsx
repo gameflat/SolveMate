@@ -2,7 +2,6 @@ import {
   ArrowLeft,
   BarChart3,
   Bookmark,
-  BookmarkCheck,
   Brain,
   CalendarCheck,
   ChevronLeft,
@@ -20,6 +19,7 @@ import {
   RotateCw,
   Search,
   Sparkles,
+  Star,
   Target,
   Timer,
   Trophy,
@@ -122,6 +122,15 @@ const modeLabels: Record<PracticeMode, string> = {
   sequential: "顺序",
   favorites: "收藏",
   mistakes: "错题",
+};
+
+const viewLabels: Record<View, string> = {
+  practice: "练习",
+  bank: "题库",
+  stats: "统计",
+  mistakes: "错题",
+  favorites: "收藏",
+  ai: "AI",
 };
 
 export function App() {
@@ -415,7 +424,7 @@ export function App() {
         : normalizeText(userAnswer) === normalizeText(current.answer);
     setResult({ correct, message: correct ? "回答正确" : `回答错误，正确答案：${current.answer}` });
     await recordAttempt(current, userAnswer, correct);
-    void loadCachedExplanation(current);
+    void loadExplanationForQuestion(current);
   }
 
   async function gradeShortAnswer() {
@@ -430,7 +439,7 @@ export function App() {
       setResult({ correct, score: payload.score, feedback: payload.feedback, message: `AI 评分：${payload.score ?? 0} 分` });
       await recordAttempt(current, textAnswer, correct);
       setStatus("");
-      void loadCachedExplanation(current);
+      void loadExplanationForQuestion(current);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "评分失败");
     }
@@ -471,30 +480,22 @@ export function App() {
 
   async function loadExplanation(refresh = false) {
     if (!current) return;
-    setExplanationLoading(true);
-    setStatus(refresh ? "正在重新生成解析..." : "正在读取 AI 解析...");
-    try {
-      const payload = await authJson(`/api/questions/${current.id}/explanation${refresh ? "?refresh=1" : ""}`);
-      setExplanation(payload.explanation);
-      setStatus(payload.cached ? "已读取缓存解析。" : "已生成并缓存解析。");
-      void refreshHealth();
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "解析生成失败");
-    } finally {
-      setExplanationLoading(false);
-    }
+    await loadExplanationForQuestion(current, refresh);
   }
 
-  async function loadCachedExplanation(question: Question) {
+  async function loadExplanationForQuestion(question: Question, refresh = false) {
+    setExplanationLoading(true);
     try {
-      const res = await fetch(`/api/questions/${question.id}/explanation?cacheOnly=1`);
-      if (!res.ok) return;
-      const payload = await res.json();
+      const payload = await authJson(`/api/questions/${question.id}/explanation${refresh ? "?refresh=1" : ""}`);
       if (currentIdRef.current !== question.id) return;
       setExplanation(payload.explanation);
       void refreshHealth();
-    } catch {
-      // Opportunistic cache display only.
+    } catch (error) {
+      if (currentIdRef.current === question.id) {
+        setExplanation(error instanceof Error ? `解析加载失败：${error.message}` : "解析加载失败");
+      }
+    } finally {
+      if (currentIdRef.current === question.id) setExplanationLoading(false);
     }
   }
 
@@ -537,6 +538,7 @@ export function App() {
   if (authenticated === "loading") return <div className="loading">正在加载...</div>;
   if (!authenticated) return <LoginPage onLogin={bootstrap} />;
   if (!current) return <div className="loading">正在加载题库...</div>;
+  const pageTitle = activeView === "practice" ? `${modeLabels[practiceMode]}练习` : viewLabels[activeView];
 
   return (
     <main className="app-shell">
@@ -602,10 +604,10 @@ export function App() {
       </aside>
 
       <section className="workspace">
-        <header className="topbar">
-          <div>
+        <header className={activeView === "practice" ? "topbar practice-topbar" : "topbar"}>
+          <div className="title-block">
             <div className="eyebrow">{activeBank?.name}</div>
-            <h1 className="page-title">{modeLabels[practiceMode]}练习</h1>
+            <h1 className="page-title">{pageTitle}</h1>
           </div>
           <div className="top-actions">
             <button
@@ -620,32 +622,36 @@ export function App() {
           </div>
         </header>
 
-        <button className="control-toggle" onClick={() => setControlsOpen((open) => !open)}>
-          <ListFilter size={18} />
-          <span>刷题设置</span>
-          <em>{modeLabels[practiceMode]} · {typeFilter === "all" ? "全部" : typeLabels[typeFilter]}</em>
-        </button>
-
-        <div className={controlsOpen ? "control-strip open" : "control-strip"}>
-          <div className="segmented">
-            {(["random", "sequential", "favorites", "mistakes"] as const).map((mode) => (
-              <button key={mode} className={practiceMode === mode ? "active" : ""} onClick={() => changePracticeMode(mode)}>
-                {modeLabels[mode]}
-              </button>
-            ))}
-          </div>
-          <button className="icon-text restart-button" onClick={restartPractice}>
-            <RefreshCcw size={17} />
-            重刷当前
+        {activeView === "practice" && (
+          <button className="control-toggle" onClick={() => setControlsOpen((open) => !open)}>
+            <ListFilter size={18} />
+            <span>刷题设置</span>
+            <em>{modeLabels[practiceMode]} · {typeFilter === "all" ? "全部" : typeLabels[typeFilter]}</em>
           </button>
-          <div className="filters">
-            {(["all", "single", "multiple", "judge", "fill", "short"] as const).map((type) => (
-              <button key={type} className={typeFilter === type ? "chip active" : "chip"} onClick={() => changeTypeFilter(type)}>
-                {type === "all" ? "全部" : typeLabels[type]}
-              </button>
-            ))}
+        )}
+
+        {activeView === "practice" && (
+          <div className={controlsOpen ? "control-strip open" : "control-strip"}>
+            <div className="segmented">
+              {(["random", "sequential", "favorites", "mistakes"] as const).map((mode) => (
+                <button key={mode} className={practiceMode === mode ? "active" : ""} onClick={() => changePracticeMode(mode)}>
+                  {modeLabels[mode]}
+                </button>
+              ))}
+            </div>
+            <button className="icon-text restart-button" onClick={restartPractice}>
+              <RefreshCcw size={17} />
+              重刷当前
+            </button>
+            <div className="filters">
+              {(["all", "single", "multiple", "judge", "fill", "short"] as const).map((type) => (
+                <button key={type} className={typeFilter === type ? "chip active" : "chip"} onClick={() => changeTypeFilter(type)}>
+                  {type === "all" ? "全部" : typeLabels[type]}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {status && <FloatingNotice message={status} onClose={() => setStatus("")} />}
 
@@ -658,14 +664,19 @@ export function App() {
 
         {activeView === "practice" && filtered.length > 0 && (
           <div className="practice-layout">
-            <section className="question-panel">
-              <div className="question-meta">
-                <span>{current.rawType}</span>
-                <span>#{current.sourceIndex}</span>
-                {currentIndex >= 0 && <span>{currentIndex + 1}/{filtered.length}</span>}
-                <span>
-                  <Clock3 size={14} /> {formatSeconds(elapsed)}
-                </span>
+            <section className={["question-panel", result ? "answered" : "", result?.correct ? "answered-correct" : result ? "answered-wrong" : ""].filter(Boolean).join(" ")}>
+              <div className="question-card-head">
+                <div className="question-meta">
+                  <span>{current.rawType}</span>
+                  <span>#{current.sourceIndex}</span>
+                  {currentIndex >= 0 && <span>{currentIndex + 1}/{filtered.length}</span>}
+                  <span>
+                    <Clock3 size={14} /> {formatSeconds(elapsed)}
+                  </span>
+                </div>
+                <button className={isFavorite ? "favorite-star active" : "favorite-star"} onClick={toggleFavorite} title={isFavorite ? "取消收藏" : "收藏本题"}>
+                  <Star size={21} fill={isFavorite ? "currentColor" : "none"} />
+                </button>
               </div>
 
               <h2 className="question-title">{current.prompt}</h2>
@@ -715,38 +726,28 @@ export function App() {
                 <button className="primary" onClick={submitAnswer} disabled={Boolean(result)}>
                   {current.type === "short" ? "AI 评分" : "提交答案"}
                 </button>
-                <button className="icon-text" onClick={toggleFavorite}>
-                  {isFavorite ? <BookmarkCheck size={18} /> : <Bookmark size={18} />}
-                  {isFavorite ? "已收藏" : "收藏"}
-                </button>
-                <button className="icon-text" onClick={() => loadExplanation(false)} disabled={explanationLoading}>
-                  <Sparkles size={18} />
-                  AI 解析
-                </button>
               </div>
               <div className="practice-nav">
                 <button className="nav-action" onClick={choosePrevious}>
                   <ArrowLeft size={19} />
                   上一题
                 </button>
-                <button className="nav-action primary-next" onClick={chooseNext}>
+                <button className={result ? "nav-action primary-next" : "nav-action"} onClick={chooseNext}>
                   下一题
                   <ChevronRight size={19} />
                 </button>
               </div>
-            </section>
-
-            <section className="side-panel">
-              <AiPanel
-                explanation={explanation}
-                explanationLoading={explanationLoading}
-                chat={chat}
-                chatInput={chatInput}
-                chatLoading={chatLoading}
-                onRefresh={() => loadExplanation(true)}
-                onAsk={askAi}
-                onChatInput={setChatInput}
-              />
+              {result && (
+                <AiPanel
+                  explanation={explanation}
+                  explanationLoading={explanationLoading}
+                  chat={chat}
+                  chatInput={chatInput}
+                  chatLoading={chatLoading}
+                  onAsk={askAi}
+                  onChatInput={setChatInput}
+                />
+              )}
             </section>
           </div>
         )}
@@ -824,7 +825,6 @@ function AiPanel({
   chat,
   chatInput,
   chatLoading,
-  onRefresh,
   onAsk,
   onChatInput,
 }: {
@@ -833,7 +833,6 @@ function AiPanel({
   chat: ChatMessage[];
   chatInput: string;
   chatLoading: boolean;
-  onRefresh: () => void;
   onAsk: (event: FormEvent) => void;
   onChatInput: (value: string) => void;
 }) {
@@ -842,11 +841,8 @@ function AiPanel({
       <div className="panel-title">
         <Sparkles size={18} />
         <strong>AI 解析</strong>
-        <button title="重新生成" className="icon-button compact" onClick={onRefresh}>
-          <RefreshCcw size={16} />
-        </button>
       </div>
-      <div className="explanation">{explanationLoading ? "正在处理..." : explanation || "点击“AI 解析”读取缓存或生成解析。"}</div>
+      <div className="explanation">{explanationLoading ? "解析加载中..." : explanation || "暂无解析内容。"}</div>
 
       <div className="panel-title qa-title">
         <MessageSquareText size={18} />

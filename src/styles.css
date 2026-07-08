@@ -186,6 +186,7 @@ button:active {
 }
 
 .topbar {
+  position: relative;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 10px;
@@ -193,6 +194,28 @@ button:active {
 
 .top-actions {
   justify-content: flex-end;
+}
+
+.title-block {
+  min-width: 0;
+}
+
+.practice-topbar {
+  min-height: 54px;
+  justify-content: center;
+}
+
+.practice-topbar .title-block {
+  max-width: min(560px, calc(100% - 96px));
+  margin: 0 auto;
+  text-align: center;
+}
+
+.practice-topbar .top-actions {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
 }
 
 .eyebrow {
@@ -214,17 +237,41 @@ button:active {
   gap: 8px;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 10px;
+  max-height: 0;
+  margin-bottom: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition:
+    max-height 0.22s ease,
+    opacity 0.18s ease,
+    margin-bottom 0.18s ease;
 }
 
 .control-toggle {
-  display: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(760px, 100%);
+  min-height: 38px;
+  margin: 0 auto 10px;
+  padding: 0 12px;
+  border: 1px solid #cdd8d2;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #26322f;
+  box-shadow: 0 1px 2px rgba(23, 33, 31, 0.04);
 }
 
 .control-toggle em {
   margin-left: auto;
   color: #68736f;
   font-style: normal;
+}
+
+.control-strip.open {
+  max-height: 260px;
+  margin-bottom: 10px;
+  opacity: 1;
 }
 
 .segmented {
@@ -340,8 +387,10 @@ button:active {
 
 .practice-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.42fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
+  width: min(760px, 100%);
+  margin: 0 auto;
   align-items: start;
 }
 
@@ -356,8 +405,24 @@ button:active {
 }
 
 .question-panel {
+  position: relative;
   padding: 18px;
   animation: panel-in 0.24s ease both;
+}
+
+.question-panel.answered-correct {
+  animation: answer-correct 0.42s ease both;
+}
+
+.question-panel.answered-wrong {
+  animation: answer-wrong 0.42s ease both;
+}
+
+.question-card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  gap: 8px;
+  align-items: start;
 }
 
 .question-meta {
@@ -368,6 +433,27 @@ button:active {
   margin-bottom: 10px;
   color: #5d6965;
   font-size: 12px;
+}
+
+.favorite-star {
+  display: inline-grid;
+  width: 34px;
+  min-height: 34px;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: #fff7d8;
+  color: #9a7b12;
+  box-shadow: inset 0 0 0 1px rgba(178, 135, 18, 0.24);
+}
+
+.favorite-star.active {
+  background: #ffd84d;
+  color: #8a5c00;
+  box-shadow:
+    inset 0 0 0 1px rgba(138, 92, 0, 0.18),
+    0 8px 18px rgba(230, 168, 18, 0.25);
+  animation: star-pop 0.24s ease both;
 }
 
 .question-meta span {
@@ -475,7 +561,16 @@ button:active {
 }
 
 .question-actions {
+  display: grid;
+  grid-template-columns: 1fr;
   margin-top: 14px;
+}
+
+.question-actions .primary {
+  min-height: 46px;
+  font-size: 16px;
+  font-weight: 750;
+  box-shadow: 0 10px 20px rgba(33, 107, 92, 0.18);
 }
 
 .practice-nav {
@@ -502,6 +597,8 @@ button:active {
   border-color: #216b5c;
   background: #216b5c;
   color: #ffffff;
+  box-shadow: 0 10px 22px rgba(33, 107, 92, 0.22);
+  animation: next-ready 0.28s ease both;
 }
 
 .restart-button {
@@ -519,6 +616,7 @@ button:active {
 }
 
 .result {
+  position: relative;
   display: flex;
   gap: 10px;
   margin-top: 12px;
@@ -534,13 +632,13 @@ button:active {
 .result.correct {
   color: #14503f;
   background: #e3f4ed;
-  animation: result-pop 0.22s ease both;
+  animation: result-pop 0.34s cubic-bezier(0.2, 1.35, 0.35, 1) both;
 }
 
 .result.wrong {
   color: #7a2b22;
   background: #f9e8e5;
-  animation: result-pop 0.22s ease both;
+  animation: result-shake 0.36s ease both;
 }
 
 .side-panel {
@@ -558,6 +656,15 @@ button:active {
   display: grid;
   gap: 10px;
   padding: 12px;
+}
+
+.question-panel .ai-panel {
+  margin-top: 14px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  animation: panel-in 0.22s ease both;
 }
 
 .panel-title .icon-button {
@@ -1211,7 +1318,10 @@ button:active {
 @keyframes result-pop {
   0% {
     opacity: 0;
-    transform: scale(0.98);
+    transform: translateY(6px) scale(0.96);
+  }
+  65% {
+    transform: translateY(-2px) scale(1.02);
   }
   100% {
     opacity: 1;
@@ -1219,10 +1329,87 @@ button:active {
   }
 }
 
+@keyframes result-shake {
+  0% {
+    opacity: 0;
+    transform: translateX(0) scale(0.98);
+  }
+  25% {
+    opacity: 1;
+    transform: translateX(-5px);
+  }
+  55% {
+    transform: translateX(4px);
+  }
+  80% {
+    transform: translateX(-2px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes answer-correct {
+  0%,
+  100% {
+    box-shadow: 0 1px 2px rgba(23, 33, 31, 0.04);
+  }
+  45% {
+    box-shadow:
+      0 16px 40px rgba(33, 107, 92, 0.18),
+      0 0 0 4px rgba(33, 107, 92, 0.08);
+  }
+}
+
+@keyframes answer-wrong {
+  0%,
+  100% {
+    box-shadow: 0 1px 2px rgba(23, 33, 31, 0.04);
+  }
+  45% {
+    box-shadow:
+      0 16px 40px rgba(185, 71, 53, 0.16),
+      0 0 0 4px rgba(185, 71, 53, 0.08);
+  }
+}
+
+@keyframes star-pop {
+  0% {
+    transform: scale(0.86) rotate(-10deg);
+  }
+  70% {
+    transform: scale(1.12) rotate(5deg);
+  }
+  100% {
+    transform: scale(1) rotate(0);
+  }
+}
+
+@keyframes next-ready {
+  from {
+    transform: translateY(3px);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
 @keyframes notice-in {
   from {
     opacity: 0;
     transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes dropdown-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
   }
   to {
     opacity: 1;
@@ -1245,10 +1432,14 @@ button:active {
 @media (max-width: 1080px) {
   .app-shell {
     grid-template-columns: 1fr;
+    align-content: start;
   }
 
   .sidebar {
-    position: static;
+    position: sticky;
+    top: 0;
+    z-index: 15;
+    align-self: start;
     height: auto;
     padding: 12px;
   }
@@ -1282,20 +1473,22 @@ button:active {
   }
 
   .mobile-nav-panel {
-    display: block;
-    max-height: 0;
-    overflow: hidden;
-    opacity: 0;
-    transition:
-      max-height 0.22s ease,
-      opacity 0.18s ease,
-      margin-top 0.18s ease;
+    display: none;
   }
 
   .mobile-nav-panel.open {
-    max-height: 320px;
-    margin-top: 10px;
-    opacity: 1;
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 12px;
+    left: 12px;
+    z-index: 25;
+    display: block;
+    padding: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 10px;
+    background: #22312d;
+    box-shadow: 0 18px 42px rgba(10, 18, 16, 0.3);
+    animation: dropdown-in 0.18s ease both;
   }
 
   .bank-switcher {
@@ -1347,6 +1540,20 @@ button:active {
 
   .topbar {
     gap: 8px;
+  }
+
+  .practice-topbar {
+    min-height: 48px;
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .practice-topbar .title-block {
+    max-width: calc(100% - 76px);
+  }
+
+  .practice-topbar .top-actions {
+    right: 0;
   }
 
   .eyebrow {
@@ -1423,6 +1630,15 @@ button:active {
     padding: 12px;
   }
 
+  .question-card-head {
+    grid-template-columns: minmax(0, 1fr) 34px;
+  }
+
+  .favorite-star {
+    width: 32px;
+    min-height: 32px;
+  }
+
   .question-title {
     margin-bottom: 12px;
     font-size: 18px;
@@ -1448,12 +1664,12 @@ button:active {
 
   .question-actions {
     display: grid;
-    grid-template-columns: 1.2fr 1fr 1fr;
+    grid-template-columns: 1fr;
   }
 
   .question-actions button {
     min-width: 0;
-    min-height: 38px;
+    min-height: 44px;
     padding: 0 8px;
     font-size: 13px;
   }
