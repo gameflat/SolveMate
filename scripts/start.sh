@@ -6,6 +6,18 @@ RUN_DIR="$ROOT_DIR/.run"
 LOG_DIR="$ROOT_DIR/logs"
 PID_FILE="$RUN_DIR/solvemate.pid"
 LOG_FILE="$LOG_DIR/solvemate.log"
+PORT=8787
+
+process_exists() {
+  local pid="$1"
+  [[ -n "$pid" ]] && ps -p "$pid" >/dev/null 2>&1
+}
+
+port_in_use() {
+  local port="$1"
+  lsof -tiTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1 && return 0
+  ss -ltn "sport = :$port" 2>/dev/null | awk 'NR > 1 { found = 1 } END { exit found ? 0 : 1 }'
+}
 
 cd "$ROOT_DIR"
 
@@ -16,16 +28,16 @@ fi
 
 if [[ -f "$PID_FILE" ]]; then
   PID="$(cat "$PID_FILE")"
-  if kill -0 "$PID" 2>/dev/null; then
+  if process_exists "$PID"; then
     echo "SolveMate is already running (PID $PID)."
-    echo "http://localhost:8787"
+    echo "http://localhost:$PORT"
     exit 0
   fi
   rm -f "$PID_FILE"
 fi
 
-if lsof -tiTCP:8787 -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "Port 8787 is already in use. Run npm stop first, or free the port manually."
+if port_in_use "$PORT"; then
+  echo "Port $PORT is already in use. Run npm stop first, or free the port manually."
   exit 1
 fi
 
@@ -41,9 +53,9 @@ echo "$PID" > "$PID_FILE"
 disown "$PID" 2>/dev/null || true
 
 sleep 1
-if kill -0 "$PID" 2>/dev/null; then
+if process_exists "$PID"; then
   echo "SolveMate started (PID $PID)."
-  echo "http://localhost:8787"
+  echo "http://localhost:$PORT"
   echo "Logs: $LOG_FILE"
 else
   echo "Failed to start. Check $LOG_FILE"
