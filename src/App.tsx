@@ -148,7 +148,7 @@ const viewLabels: Record<View, string> = {
   practice: "练习",
   bank: "题库",
   manage: "管理",
-  stats: "统计",
+  stats: "用户主页",
   mistakes: "错题",
   favorites: "收藏",
   ai: "AI",
@@ -644,10 +644,13 @@ export function App() {
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand">
-          <Brain size={28} />
-          <div>
+          <div className="brand-logo">
+            <Brain size={28} />
             <strong>SolveMate</strong>
-            <span>{userState.username || "local"} · {questions.length} 题</span>
+          </div>
+          <div className="brand-user">
+            <UserAvatar username={userState.username || "local"} size="small" />
+            <span>{userState.username || "local"}</span>
           </div>
           <button className="mobile-menu-toggle" onClick={() => setMobileNavOpen((open) => !open)} title="展开导航">
             <Menu size={18} />
@@ -681,7 +684,7 @@ export function App() {
               <Settings size={18} /> 管理
             </button>
             <button className={activeView === "stats" ? "active" : ""} onClick={() => openView("stats")}>
-              <BarChart3 size={18} /> 统计
+              <BarChart3 size={18} /> 主页
             </button>
             <button className={activeView === "mistakes" ? "active" : ""} onClick={() => openView("mistakes")}>
               <XCircle size={18} /> 错题
@@ -905,6 +908,7 @@ export function App() {
           <StatsView
             questions={questions}
             state={userState}
+            username={userState.username || "local"}
             accuracy={accuracy}
             averageSeconds={averageSeconds}
             calendarMonth={calendarMonth}
@@ -1031,6 +1035,7 @@ function AiPanel({
 function StatsView({
   questions,
   state,
+  username,
   accuracy,
   averageSeconds,
   calendarMonth,
@@ -1040,6 +1045,7 @@ function StatsView({
 }: {
   questions: Question[];
   state: UserState;
+  username: string;
   accuracy: number;
   averageSeconds: number;
   calendarMonth: string;
@@ -1049,6 +1055,8 @@ function StatsView({
 }) {
   const today = state.stats.daily[chinaDateKey()] || { attempts: 0, correct: 0, totalSeconds: 0 };
   const month = state.stats.monthly[chinaMonthKey()] || { attempts: 0, correct: 0, totalSeconds: 0 };
+  const practicedCount = questions.filter((question) => (state.stats.byQuestion[question.id]?.attempts || 0) > 0).length;
+  const practicedPercent = questions.length ? Math.round((practicedCount / questions.length) * 100) : 0;
   const practiced = Object.entries(state.stats.byQuestion)
     .map(([id, stat]) => ({ question: questions.find((item) => item.id === id), stat }))
     .filter((item) => item.question)
@@ -1056,16 +1064,30 @@ function StatsView({
     .slice(0, 10);
 
   return (
-    <section className="dashboard">
-      <div className="metric-grid">
-        <Metric label="总作答" value={state.stats.attempts.toString()} icon={<ListChecks size={18} />} />
-        <Metric label="总正确率" value={`${accuracy}%`} icon={<Trophy size={18} />} />
-        <Metric label="平均用时" value={formatSeconds(averageSeconds)} icon={<Timer size={18} />} />
-        <Metric label="连续签到" value={`${state.checkins.streak} 天`} icon={<CalendarCheck size={18} />} />
-        <Metric label="今日作答" value={today.attempts.toString()} icon={<Target size={18} />} />
-        <Metric label="今日正确率" value={formatAccuracy(today)} icon={<CheckCircle2 size={18} />} />
-        <Metric label="本月作答" value={month.attempts.toString()} icon={<BarChart3 size={18} />} />
-        <Metric label="错题数" value={Object.keys(state.mistakes).length.toString()} icon={<XCircle size={18} />} />
+    <section className="dashboard profile-dashboard">
+      <section className="profile-hero">
+        <div className="profile-identity">
+          <UserAvatar username={username} size="large" />
+          <div>
+            <span className="eyebrow">用户主页</span>
+            <h2>{username}</h2>
+            <p>连续签到 {state.checkins.streak} 天 · 平均 {formatSeconds(averageSeconds)}/题</p>
+          </div>
+        </div>
+        <div className="profile-score-card">
+          <span><Trophy size={16} /> 总正确率</span>
+          <strong>{accuracy}%</strong>
+          <i style={{ width: `${accuracy}%` }} />
+        </div>
+      </section>
+
+      <div className="profile-stat-grid">
+        <ProfileStat label="总作答" value={state.stats.attempts.toString()} detail="累计练习次数" icon={<ListChecks size={17} />} />
+        <ProfileStat label="已练题目" value={`${practicedCount}/${questions.length}`} detail={`完成 ${practicedPercent}%`} icon={<CheckCircle2 size={17} />} />
+        <ProfileStat label="今日作答" value={today.attempts.toString()} detail={`正确率 ${formatAccuracy(today)}`} icon={<Target size={17} />} />
+        <ProfileStat label="本月作答" value={month.attempts.toString()} detail={`正确率 ${formatAccuracy(month)}`} icon={<BarChart3 size={17} />} />
+        <ProfileStat label="平均用时" value={formatSeconds(averageSeconds)} detail="每题平均耗时" icon={<Timer size={17} />} />
+        <ProfileStat label="错题数" value={Object.keys(state.mistakes).length.toString()} detail="建议优先复盘" icon={<XCircle size={17} />} />
       </div>
 
       <ActivityCalendar
@@ -1093,6 +1115,52 @@ function StatsView({
         )}
       </div>
     </section>
+  );
+}
+
+function UserAvatar({ username, size = "small" }: { username: string; size?: "small" | "large" }) {
+  const label = username.trim() || "local";
+  const normalized = label.toLowerCase();
+
+  if (normalized === "orange") {
+    return (
+      <div className={`user-avatar ${size} orange-avatar`} aria-label={`${label} 的头像`}>
+        <span className="orange-leaf" />
+        <span className="orange-face" />
+      </div>
+    );
+  }
+
+  if (normalized === "zhan") {
+    return (
+      <div className={`user-avatar ${size} stick-avatar`} aria-label={`${label} 的头像`}>
+        <span className="stick-head" />
+        <span className="stick-body" />
+        <span className="stick-arm left" />
+        <span className="stick-arm right" />
+        <span className="stick-leg left" />
+        <span className="stick-leg right" />
+      </div>
+    );
+  }
+
+  return (
+    <div className={`user-avatar ${size} default-avatar`} aria-label={`${label} 的头像`}>
+      <span>{label.slice(0, 1).toUpperCase()}</span>
+    </div>
+  );
+}
+
+function ProfileStat({ label, value, detail, icon }: { label: string; value: string; detail: string; icon: ReactNode }) {
+  return (
+    <article className="profile-stat">
+      <div className="profile-stat-icon">{icon}</div>
+      <div>
+        <span>{label}</span>
+        <strong>{value}</strong>
+        <em>{detail}</em>
+      </div>
+    </article>
   );
 }
 
