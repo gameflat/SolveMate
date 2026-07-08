@@ -6,6 +6,7 @@ const STORE_PATH = path.join(process.cwd(), "data", "user-store.json");
 const MAX_RECENT_ATTEMPTS = 120;
 const CHINA_TIME_ZONE = "Asia/Shanghai";
 const CHECKIN_REQUIRED_CORRECT = 10;
+let storeWriteChain = Promise.resolve();
 
 export function buildConfiguredUsers() {
   const users = new Map();
@@ -227,8 +228,18 @@ async function readStore() {
 }
 
 async function writeStore(store) {
-  await fs.mkdir(path.dirname(STORE_PATH), { recursive: true });
-  await fs.writeFile(STORE_PATH, JSON.stringify(store, null, 2));
+  const payload = `${JSON.stringify(store, null, 2)}\n`;
+  const nextWrite = storeWriteChain.then(() => writeStoreAtomic(payload));
+  storeWriteChain = nextWrite.catch(() => {});
+  return nextWrite;
+}
+
+async function writeStoreAtomic(payload) {
+  const storeDir = path.dirname(STORE_PATH);
+  const tempPath = path.join(storeDir, `.user-store.${process.pid}.${Date.now()}.tmp`);
+  await fs.mkdir(storeDir, { recursive: true });
+  await fs.writeFile(tempPath, payload);
+  await fs.rename(tempPath, STORE_PATH);
 }
 
 function getOrCreateUser(store, username) {
