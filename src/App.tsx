@@ -124,6 +124,8 @@ const modeLabels: Record<PracticeMode, string> = {
   mistakes: "错题",
 };
 
+const bankTypeOptions = ["all", "single", "multiple", "judge", "fill", "short", "unknown"] as const;
+
 const viewLabels: Record<View, string> = {
   practice: "练习",
   bank: "题库",
@@ -140,6 +142,7 @@ export function App() {
   const [health, setHealth] = useState<Health | null>(null);
   const [activeView, setActiveView] = useState<View>("practice");
   const [typeFilter, setTypeFilter] = useState<QuestionType | "all">("all");
+  const [bankTypeFilter, setBankTypeFilter] = useState<QuestionType | "all">("all");
   const [practiceMode, setPracticeMode] = useState<PracticeMode>("random");
   const [controlsOpen, setControlsOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -233,12 +236,12 @@ export function App() {
   const currentIndex = useMemo(() => activeOrder.findIndex((id) => id === current?.id), [activeOrder, current]);
   const bankQuestions = useMemo(() => {
     const term = normalizeSearch(bankSearch);
-    const source = typeFilter === "all" ? questions : questions.filter((question) => question.type === typeFilter);
+    const source = bankTypeFilter === "all" ? questions : questions.filter((question) => question.type === bankTypeFilter);
     if (!term) return source;
     return source.filter((question) =>
       normalizeSearch(`${question.sourceIndex} ${question.rawType} ${question.prompt} ${question.answer}`).includes(term),
     );
-  }, [questions, typeFilter, bankSearch]);
+  }, [questions, bankTypeFilter, bankSearch]);
   const visibleMistakes = useMemo(
     () => Object.keys(userState.mistakes).map((id) => questions.find((question) => question.id === id)).filter(Boolean) as Question[],
     [questions, userState.mistakes],
@@ -247,10 +250,41 @@ export function App() {
     () => userState.favorites.map((id) => questions.find((question) => question.id === id)).filter(Boolean) as Question[],
     [questions, userState.favorites],
   );
+  const practiceProgress = useMemo(() => {
+    const total = filtered.length;
+    const completed = filtered.filter((question) => (userState.stats.byQuestion[question.id]?.attempts || 0) > 0).length;
+    const correct = filtered.filter((question) => (userState.stats.byQuestion[question.id]?.correct || 0) > 0).length;
+    return {
+      total,
+      completed,
+      correct,
+      percent: total ? Math.round((completed / total) * 100) : 0,
+    };
+  }, [filtered, userState.stats.byQuestion]);
 
   const accuracy = userState.stats.attempts ? Math.round((userState.stats.correct / userState.stats.attempts) * 100) : 0;
   const averageSeconds = userState.stats.attempts ? Math.round(userState.stats.totalSeconds / userState.stats.attempts) : 0;
   const isFavorite = current ? userState.favorites.includes(current.id) : false;
+  const currentStat = current ? userState.stats.byQuestion[current.id] : undefined;
+  const currentRecentAttempt = current ? userState.stats.recentAttempts.find((attempt) => attempt.questionId === current.id) : undefined;
+  const rememberedResult = useMemo<ResultState | null>(() => {
+    if (!current || result || !currentStat?.attempts) return null;
+    const correct = currentRecentAttempt?.correct ?? currentStat.correct > 0;
+    const historyText =
+      currentStat.attempts > 1
+        ? `历史 ${currentStat.correct}/${currentStat.attempts} 次正确`
+        : currentStat.correct > 0
+          ? "历史已答对"
+          : "历史未答对";
+    const answerText = currentStat.lastAnswer ? `你的答案：${currentStat.lastAnswer}` : "";
+    return {
+      correct,
+      message: currentRecentAttempt ? (correct ? "上次回答正确" : "上次回答错误") : historyText,
+      feedback: [answerText, historyText].filter(Boolean).join(" · "),
+    };
+  }, [current, currentStat, currentRecentAttempt, result]);
+  const visibleResult = result || rememberedResult;
+  const answeredFromHistory = Boolean(rememberedResult && !result);
   const checkinUnlocked = Boolean(userState.checkins.checkedToday || userState.checkins.unlocked);
   const checkinReady = checkinUnlocked && !userState.checkins.checkedToday;
   const checkinRequiredCorrect = userState.checkins.requiredCorrect || 10;
@@ -422,7 +456,7 @@ export function App() {
       current.type === "multiple" || current.type === "single"
         ? normalizeChoice(userAnswer) === normalizeChoice(current.answer)
         : normalizeText(userAnswer) === normalizeText(current.answer);
-    setResult({ correct, message: correct ? "回答正确" : `回答错误，正确答案：${current.answer}` });
+    setResult({ correct, message: correct ? "回答正确" : "回答错误" });
     await recordAttempt(current, userAnswer, correct);
     void loadExplanationForQuestion(current);
   }
@@ -547,7 +581,7 @@ export function App() {
           typeFilter === "all" ? "全部题型" : typeLabels[typeFilter],
         ]
       : activeView === "bank"
-        ? [`显示 ${bankQuestions.length}/${questions.length} 题`, typeFilter === "all" ? "全部题型" : typeLabels[typeFilter]]
+        ? [`显示 ${bankQuestions.length}/${questions.length} 题`, bankTypeFilter === "all" ? "全部题型" : typeLabels[bankTypeFilter]]
         : activeView === "stats"
           ? [`正确率 ${accuracy}%`, `连续 ${userState.checkins.streak} 天`]
           : activeView === "mistakes"
@@ -690,12 +724,19 @@ export function App() {
 
         {activeView === "practice" && filtered.length > 0 && (
           <div className="practice-layout">
-            <section className={["question-panel", result ? "answered" : "", result?.correct ? "answered-correct" : result ? "answered-wrong" : ""].filter(Boolean).join(" ")}>
+            <PracticeProgress
+              progress={practiceProgress}
+              mode={practiceMode}
+              typeFilter={typeFilter}
+              currentIndex={currentIndex}
+            />
+            <section className={["question-panel", visibleResult ? "answered" : "", visibleResult?.correct ? "answered-correct" : visibleResult ? "answered-wrong" : ""].filter(Boolean).join(" ")}>
               <div className="question-card-head">
                 <div className="question-meta">
                   <span>{current.rawType}</span>
                   <span>#{current.sourceIndex}</span>
                   {currentIndex >= 0 && <span>{currentIndex + 1}/{filtered.length}</span>}
+                  {answeredFromHistory && <span>已刷过</span>}
                   <span>
                     <Clock3 size={14} /> {formatSeconds(elapsed)}
                   </span>
@@ -714,6 +755,7 @@ export function App() {
                       key={option.key}
                       className={selected.includes(option.key) ? "option checked" : "option"}
                       onClick={() => toggleOption(option.key)}
+                      disabled={Boolean(visibleResult)}
                     >
                       <span>{option.key}</span>
                       <p>{option.text}</p>
@@ -727,30 +769,30 @@ export function App() {
                   {fillAnswers.map((answer, index) => (
                     <label key={`${current.id}-${index}`} className="fill-input">
                       <span>空 {index + 1}</span>
-                      <input value={answer} placeholder={`填写第 ${index + 1} 空`} onChange={(event) => updateFillAnswer(index, event.target.value)} />
+                      <input value={answer} placeholder={`填写第 ${index + 1} 空`} disabled={Boolean(visibleResult)} onChange={(event) => updateFillAnswer(index, event.target.value)} />
                     </label>
                   ))}
                 </div>
               )}
 
               {current.type === "short" && (
-                <textarea className="answer-box" value={textAnswer} rows={7} placeholder="输入答案，提交后调用 AI 快速评分" onChange={(event) => setTextAnswer(event.target.value)} />
+                <textarea className="answer-box" value={textAnswer} rows={7} placeholder="输入答案，提交后调用 AI 快速评分" disabled={Boolean(visibleResult)} onChange={(event) => setTextAnswer(event.target.value)} />
               )}
 
-              {result && (
-                <div className={result.correct ? "result correct" : "result wrong"}>
-                  {result.correct ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
+              {visibleResult && (
+                <div className={visibleResult.correct ? "result correct" : "result wrong"}>
+                  {visibleResult.correct ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
                   <div>
-                    <strong>{result.message}</strong>
-                    {result.feedback && <p>{result.feedback}</p>}
-                    {!result.correct && <p>标准答案：{current.answer}</p>}
+                    <strong>{visibleResult.message}</strong>
+                    {visibleResult.feedback && <p>{visibleResult.feedback}</p>}
+                    <p>标准答案：{current.answer}</p>
                   </div>
                 </div>
               )}
 
               <div className="question-actions">
-                <button className="primary" onClick={submitAnswer} disabled={Boolean(result)}>
-                  {current.type === "short" ? "AI 评分" : "提交答案"}
+                <button className="primary" onClick={submitAnswer} disabled={Boolean(visibleResult)}>
+                  {answeredFromHistory ? "已完成" : current.type === "short" ? "AI 评分" : "提交答案"}
                 </button>
               </div>
               <div className="practice-nav">
@@ -781,11 +823,14 @@ export function App() {
         {activeView === "bank" && (
           <QuestionBank
             questions={bankQuestions}
+            allQuestions={questions}
             total={questions.length}
             search={bankSearch}
+            typeFilter={bankTypeFilter}
             currentId={current.id}
             state={userState}
             onSearch={setBankSearch}
+            onTypeFilter={setBankTypeFilter}
             onChoose={chooseQuestion}
           />
         )}
@@ -1135,21 +1180,44 @@ function ActivityCalendar({
 
 function QuestionBank({
   questions,
+  allQuestions,
   total,
   search,
+  typeFilter,
   currentId,
   state,
   onSearch,
+  onTypeFilter,
   onChoose,
 }: {
   questions: Question[];
+  allQuestions: Question[];
   total: number;
   search: string;
+  typeFilter: QuestionType | "all";
   currentId: string;
   state: UserState;
   onSearch: (value: string) => void;
+  onTypeFilter: (value: QuestionType | "all") => void;
   onChoose: (id: string) => void;
 }) {
+  const typeCounts = useMemo(() => {
+    const counts: Record<QuestionType | "all", number> = {
+      all: allQuestions.length,
+      single: 0,
+      multiple: 0,
+      judge: 0,
+      fill: 0,
+      short: 0,
+      unknown: 0,
+    };
+    allQuestions.forEach((question) => {
+      counts[question.type] += 1;
+    });
+    return counts;
+  }, [allQuestions]);
+  const visibleTypeOptions = bankTypeOptions.filter((type) => type === "all" || typeCounts[type] > 0);
+
   return (
     <section className="table-panel bank-panel">
       <div className="bank-toolbar">
@@ -1161,6 +1229,20 @@ function QuestionBank({
           <Search size={18} />
           <input value={search} placeholder="搜索题干、答案、题型或编号" onChange={(event) => onSearch(event.target.value)} />
         </label>
+        <div className="bank-filter" aria-label="题型筛选">
+          {visibleTypeOptions.map((type) => (
+            <button
+              key={type}
+              type="button"
+              className={typeFilter === type ? "active" : ""}
+              aria-pressed={typeFilter === type}
+              onClick={() => onTypeFilter(type)}
+            >
+              <span>{type === "all" ? "全部" : typeLabels[type]}</span>
+              <em>{typeCounts[type]}</em>
+            </button>
+          ))}
+        </div>
       </div>
 
       {questions.length === 0 ? (
@@ -1168,6 +1250,41 @@ function QuestionBank({
       ) : (
         <QuestionRows questions={questions} state={state} currentId={currentId} onChoose={onChoose} />
       )}
+    </section>
+  );
+}
+
+function PracticeProgress({
+  progress,
+  mode,
+  typeFilter,
+  currentIndex,
+}: {
+  progress: { total: number; completed: number; correct: number; percent: number };
+  mode: PracticeMode;
+  typeFilter: QuestionType | "all";
+  currentIndex: number;
+}) {
+  const typeText = typeFilter === "all" ? "全部题型" : typeLabels[typeFilter];
+  const currentText = progress.total ? `${Math.max(0, currentIndex) + 1}/${progress.total}` : "0/0";
+
+  return (
+    <section className="practice-progress-panel" aria-label="刷题进度">
+      <div className="practice-progress-head">
+        <div>
+          <strong>{modeLabels[mode]}进度</strong>
+          <span>{typeText} · 当前 {currentText}</span>
+        </div>
+        <em>{progress.percent}%</em>
+      </div>
+      <div className="practice-progress-track" aria-hidden="true">
+        <i style={{ width: `${progress.percent}%` }} />
+      </div>
+      <div className="practice-progress-stats">
+        <span>已刷 {progress.completed}/{progress.total}</span>
+        <span>已通过 {progress.correct}</span>
+        <span>剩余 {Math.max(0, progress.total - progress.completed)}</span>
+      </div>
     </section>
   );
 }
