@@ -145,17 +145,28 @@ app.post("/api/banks/import", requireAuth, async (req, res, next) => {
 
     const storedFile = await saveImportFile(fileName, buffer);
     const parsed = await parseImportFile(storedFile.absolutePath);
+    const strictIssue = !parsed.questions.length || (parsed.warnings || []).length > 0;
     const aiResult = await maybeParseWithLlm({
       aiAssist,
       fileName,
       parsedQuestions: parsed.questions,
       sourceText: parsed.sourceText || "",
       warnings: parsed.warnings || [],
+      required: strictIssue,
     });
-    const importedQuestions = aiResult.questions.length ? aiResult.questions : parsed.questions;
+    if (strictIssue && !aiResult.questions.length) {
+      return res.status(400).json({
+        error: aiAssist
+          ? "题库解析存在不确定内容，AI 未能生成可安全导入的结构化题目。"
+          : "题库解析存在不确定内容，已停止导入以防污染题库。",
+        warnings: parsed.warnings || [],
+        ai: aiResult.report,
+      });
+    }
+    const importedQuestions = strictIssue ? aiResult.questions : parsed.questions;
     if (!importedQuestions.length) {
       return res.status(400).json({
-        error: "未能识别出题目，请检查文件格式或开启 AI 辅助解析。",
+        error: "未能识别出可安全导入的题目，请整理文件后重试。",
         warnings: parsed.warnings || [],
         ai: aiResult.report,
       });
@@ -184,6 +195,21 @@ app.post("/api/banks/import", requireAuth, async (req, res, next) => {
     }
 
     const normalizedQuestions = normalizeImportedQuestions(importedQuestions, bank, storedFile.relativePath);
+    if (normalizedQuestions.length !== importedQuestions.length) {
+      return res.status(400).json({
+        error: "导入题目规范化时发现不完整数据，已停止导入。",
+        warnings: parsed.warnings || [],
+        ai: aiResult.report,
+      });
+    }
+    const backup = await createQuestionBankBackup({
+      username: req.username,
+      fileName,
+      targetMode,
+      targetBankId: req.body?.targetBankId || "",
+      bankName,
+      importedCount: normalizedQuestions.length,
+    });
     bank.questions.push(...normalizedQuestions);
     if (targetMode === "existing") {
       bank.source = bank.source ? `${bank.source}; ${storedFile.relativePath}` : storedFile.relativePath;
@@ -197,6 +223,7 @@ app.post("/api/banks/import", requireAuth, async (req, res, next) => {
       importedCount: normalizedQuestions.length,
       warnings: parsed.warnings || [],
       ai: aiResult.report,
+      backup,
     });
   } catch (error) {
     next(error);
@@ -449,7 +476,26 @@ async function parseImportFile(filePath) {
   return JSON.parse(stdout);
 }
 
-async function maybeParseWithLlm({ aiAssist, fileName, parsedQuestions, sourceText, warnings }) {
+async function createQuestionBankBackup(meta) {
+  const backupId = `${new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14)}-${crypto.randomBytes(4).toString("hex")}`;
+  const backupDir = path.join(process.cwd(), "data", "import-backups", backupId);
+  const questionBanksPath = path.join(process.cwd(), "data", "question-banks.json");
+  await fs.mkdir(backupDir, { recursive: true });
+  await fs.copyFile(questionBanksPath, path.join(backupDir, "question-banks.json"));
+  const manifest = {
+    id: backupId,
+    createdAt: new Date().toISOString(),
+    type: "pre-import",
+    ...meta,
+  };
+  await fs.writeFile(path.join(backupDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
+  return {
+    id: backupId,
+    path: path.relative(process.cwd(), backupDir),
+  };
+}
+
+async function maybeParseWithLlm({ aiAssist, fileName, parsedQuestions, sourceText, warnings, required }) {
   const report = {
     used: false,
     configured: getLlmConfig().configured,
@@ -468,7 +514,7 @@ async function maybeParseWithLlm({ aiAssist, fileName, parsedQuestions, sourceTe
     report.reason = "no source text available";
     return { questions: [], report };
   }
-  if (parsedQuestions.length && !warnings.length) {
+  if (!required) {
     report.reason = "rule parser produced clean result";
     return { questions: [], report };
   }
@@ -493,9 +539,9 @@ async function maybeParseWithLlm({ aiAssist, fileName, parsedQuestions, sourceTe
     const questions = normalizeLlmQuestions(parsed.questions || []);
     report.used = true;
     report.count = questions.length;
-    report.reason = questions.length > parsedQuestions.length ? "used llm result" : "llm result not better than rule parser";
+    report.reason = questions.length ? "used llm result" : "llm result contained no importable questions";
     return {
-      questions: questions.length > parsedQuestions.length ? questions : [],
+      questions,
       report,
     };
   } catch (error) {

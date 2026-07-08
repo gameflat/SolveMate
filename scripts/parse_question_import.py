@@ -59,7 +59,7 @@ def normalize_type(raw_type, prompt="", answer="", options=None):
         return "judge"
     if re.search(r"_{2,}|填空|空[一二三四五六七八九十\d]", prompt):
         return "fill"
-    return "short" if prompt else "unknown"
+    return "unknown"
 
 
 def raw_type_for(question_type, raw_type=""):
@@ -93,7 +93,7 @@ def find_header_map(row):
             if compact in (key, f"选项{key}", f"{key}选项", f"OPTION{key}"):
                 mapping[key] = index
                 break
-    return mapping if "prompt" in mapping else {}
+    return mapping if "prompt" in mapping and "answer" in mapping else {}
 
 
 def row_value(row, index):
@@ -116,9 +116,7 @@ def parse_table_rows(rows, source_name):
             break
 
     if not header:
-        header = {"prompt": 0, "type": 1, "answer": 9}
-        for offset, key in enumerate(OPTION_KEYS, start=2):
-            header[key] = offset
+        return [], [{"reason": "missing recognized header row; required columns include question/prompt and answer"}]
 
     for row_number, row in enumerate(rows[start_index:], start=start_index + 1):
         prompt = row_value(row, header.get("prompt"))
@@ -132,13 +130,6 @@ def parse_table_rows(rows, source_name):
             if text:
                 options.append({"key": key, "text": text})
 
-        if not answer:
-            for cell in reversed(row):
-                value = clean(cell)
-                if value and value != prompt and value != raw_type and value not in [item["text"] for item in options]:
-                    answer = value
-                    break
-
         question_type = normalize_type(raw_type, prompt, answer, options)
         if question_type == "judge":
             options = [{"key": "A", "text": "正确"}, {"key": "B", "text": "错误"}]
@@ -146,8 +137,13 @@ def parse_table_rows(rows, source_name):
 
         if not answer:
             warnings.append({"row": row_number, "reason": "missing answer", "prompt": prompt[:120]})
+            continue
+        if question_type == "unknown":
+            warnings.append({"row": row_number, "reason": "unknown question type", "prompt": prompt[:120]})
+            continue
         if question_type in ("single", "multiple") and len(options) < 2:
             warnings.append({"row": row_number, "reason": "choice question has fewer than two options", "prompt": prompt[:120]})
+            continue
 
         questions.append(
             {
@@ -246,21 +242,6 @@ def split_text_blocks(text):
     if current:
         blocks.append(current)
 
-    if len(blocks) <= 1:
-        paragraph_blocks = []
-        current = []
-        for raw_line in text.splitlines():
-            line = normalize_text(raw_line)
-            if not line:
-                if current:
-                    paragraph_blocks.append(current)
-                    current = []
-                continue
-            current.append(line)
-        if current:
-            paragraph_blocks.append(current)
-        if len(paragraph_blocks) > len(blocks):
-            return paragraph_blocks
     return blocks
 
 
@@ -329,19 +310,25 @@ def parse_text_questions(text, source_name):
             answer = normalize_judge_answer(answer)
         if not prompt or not answer:
             warnings.append({"block": block_index, "reason": "missing prompt or answer", "text": " ".join(block)[:180]})
-        if prompt and answer:
-            questions.append(
-                {
-                    "sourceIndex": len(questions) + 1,
-                    "prompt": prompt,
-                    "rawType": raw_type_for(question_type, raw_type),
-                    "type": question_type,
-                    "options": options,
-                    "answer": answer,
-                    "answerKeys": answer_keys(answer, question_type),
-                    "source": source_name,
-                }
-            )
+            continue
+        if question_type == "unknown":
+            warnings.append({"block": block_index, "reason": "unknown question type", "text": " ".join(block)[:180]})
+            continue
+        if question_type in ("single", "multiple") and len(options) < 2:
+            warnings.append({"block": block_index, "reason": "choice question has fewer than two options", "text": " ".join(block)[:180]})
+            continue
+        questions.append(
+            {
+                "sourceIndex": len(questions) + 1,
+                "prompt": prompt,
+                "rawType": raw_type_for(question_type, raw_type),
+                "type": question_type,
+                "options": options,
+                "answer": answer,
+                "answerKeys": answer_keys(answer, question_type),
+                "source": source_name,
+            }
+        )
     return questions, warnings
 
 
