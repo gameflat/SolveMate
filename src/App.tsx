@@ -895,8 +895,11 @@ export function App() {
                   {visibleResult.correct ? <CheckCircle2 size={20} /> : <XCircle size={20} />}
                   <div>
                     <strong>{visibleResult.message}</strong>
-                    {visibleResult.feedback && <p>{visibleResult.feedback}</p>}
-                    <p>标准答案：{current.answer}</p>
+                    {visibleResult.feedback && <MarkdownText className="result-markdown" content={visibleResult.feedback} />}
+                    <div className="answer-markdown">
+                      <span>标准答案：</span>
+                      <MarkdownText content={current.answer} />
+                    </div>
                   </div>
                 </div>
               )}
@@ -1157,6 +1160,189 @@ function FloatingNotice({ message, onClose }: { message: string; onClose: () => 
   );
 }
 
+function MarkdownText({ content, className = "" }: { content: string; className?: string }) {
+  const blocks = parseMarkdownBlocks(content);
+  return (
+    <div className={["markdown-text", className].filter(Boolean).join(" ")}>
+      {blocks.map((block, index) => {
+        if (block.type === "heading") {
+          return renderMarkdownHeading(block, index);
+        }
+        if (block.type === "quote") {
+          return <blockquote key={`quote-${index}`}>{renderInlineMarkdown(block.text)}</blockquote>;
+        }
+        if (block.type === "rule") {
+          return <hr key={`rule-${index}`} />;
+        }
+        if (block.type === "code") {
+          return <pre key={`code-${index}`}><code>{block.text}</code></pre>;
+        }
+        if (block.type === "list") {
+          const ListTag = block.ordered ? "ol" : "ul";
+          return (
+            <ListTag key={`list-${index}`}>
+              {block.items.map((item, itemIndex) => (
+                <li key={`${index}-${itemIndex}`}>{renderInlineMarkdown(item)}</li>
+              ))}
+            </ListTag>
+          );
+        }
+        return <p key={`p-${index}`}>{renderInlineMarkdown(block.text)}</p>;
+      })}
+    </div>
+  );
+}
+
+function parseMarkdownBlocks(content: string) {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const blocks: MarkdownBlock[] = [];
+  let paragraph: string[] = [];
+  let list: { ordered: boolean; items: string[] } | null = null;
+  let code: { fence: string; lines: string[] } | null = null;
+
+  function flushParagraph() {
+    if (!paragraph.length) return;
+    blocks.push({ type: "paragraph", text: paragraph.join("\n") });
+    paragraph = [];
+  }
+
+  function flushList() {
+    if (!list?.items.length) return;
+    blocks.push({ type: "list", ordered: list.ordered, items: list.items });
+    list = null;
+  }
+
+  for (const line of lines) {
+    const codeFence = line.match(/^\s*(```+|~~~+)/);
+    if (code) {
+      if (codeFence?.[1]?.startsWith(code.fence.slice(0, 3))) {
+        blocks.push({ type: "code", text: code.lines.join("\n") });
+        code = null;
+      } else {
+        code.lines.push(line);
+      }
+      continue;
+    }
+    if (codeFence) {
+      flushParagraph();
+      flushList();
+      code = { fence: codeFence[1], lines: [] };
+      continue;
+    }
+
+    const headingMatch = line.match(/^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (headingMatch) {
+      flushParagraph();
+      flushList();
+      blocks.push({ type: "heading", level: headingMatch[1].length, text: headingMatch[2] });
+      continue;
+    }
+
+    if (/^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/.test(line)) {
+      flushParagraph();
+      flushList();
+      blocks.push({ type: "rule" });
+      continue;
+    }
+
+    const quoteMatch = line.match(/^\s{0,3}>\s?(.+)$/);
+    if (quoteMatch) {
+      flushParagraph();
+      flushList();
+      blocks.push({ type: "quote", text: quoteMatch[1] });
+      continue;
+    }
+
+    const listMatch = line.match(/^\s*(?:(\d+)[.)]|[-*+])\s+(.+)$/);
+    if (listMatch) {
+      flushParagraph();
+      const ordered = Boolean(listMatch[1]);
+      if (!list || list.ordered !== ordered) flushList();
+      list = list || { ordered, items: [] };
+      list.items.push(listMatch[2]);
+      continue;
+    }
+
+    if (!line.trim()) {
+      flushParagraph();
+      flushList();
+      continue;
+    }
+    flushList();
+    paragraph.push(line);
+  }
+
+  flushParagraph();
+  flushList();
+  if (code) blocks.push({ type: "code", text: code.lines.join("\n") });
+  return blocks.length ? blocks : [{ type: "paragraph" as const, text: "" }];
+}
+
+function renderInlineMarkdown(text: string) {
+  const nodes: ReactNode[] = [];
+  const pattern = /(`[^`]+`|\[[^\]]+\]\([^)]+\)|~~[^~]+~~|\*\*[^*]+\*\*|__[^_]+__|\*[^*\n]+\*|_[^_\n]+_)/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text))) {
+    if (match.index > lastIndex) nodes.push(cleanMarkdownText(text.slice(lastIndex, match.index)));
+    const token = match[0];
+    const key = `${match.index}-${token}`;
+    if (token.startsWith("`")) {
+      nodes.push(<code key={key}>{token.slice(1, -1)}</code>);
+    } else if (token.startsWith("[")) {
+      const link = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+      nodes.push(
+        <a key={key} href={safeMarkdownUrl(link?.[2] || "#")} target="_blank" rel="noreferrer">
+          {link?.[1] || token}
+        </a>,
+      );
+    } else if (token.startsWith("~~")) {
+      nodes.push(<del key={key}>{token.slice(2, -2)}</del>);
+    } else if (token.startsWith("**") || token.startsWith("__")) {
+      nodes.push(<strong key={key}>{token.slice(2, -2)}</strong>);
+    } else {
+      nodes.push(<em key={key}>{token.slice(1, -1)}</em>);
+    }
+    lastIndex = match.index + token.length;
+  }
+
+  if (lastIndex < text.length) nodes.push(cleanMarkdownText(text.slice(lastIndex)));
+  return nodes;
+}
+
+function renderMarkdownHeading(block: Extract<MarkdownBlock, { type: "heading" }>, index: number) {
+  const content = renderInlineMarkdown(block.text);
+  if (block.level <= 1) return <h1 key={`heading-${index}`}>{content}</h1>;
+  if (block.level === 2) return <h2 key={`heading-${index}`}>{content}</h2>;
+  if (block.level === 3) return <h3 key={`heading-${index}`}>{content}</h3>;
+  return <h4 key={`heading-${index}`}>{content}</h4>;
+}
+
+type MarkdownBlock =
+  | { type: "paragraph"; text: string }
+  | { type: "heading"; level: number; text: string }
+  | { type: "quote"; text: string }
+  | { type: "rule" }
+  | { type: "code"; text: string }
+  | { type: "list"; ordered: boolean; items: string[] };
+
+function cleanMarkdownText(text: string) {
+  return text
+    .replace(/\\([\\`*_[\]{}()#+\-.!>])/g, "$1")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")
+    .replace(/^\s{0,3}>\s?/gm, "")
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/[*_~`]{1,3}/g, "");
+}
+
+function safeMarkdownUrl(url: string) {
+  const trimmed = url.trim();
+  if (/^(https?:|mailto:)/i.test(trimmed)) return trimmed;
+  return "#";
+}
+
 function AiPanel({
   explanation,
   explanationLoading,
@@ -1180,7 +1366,9 @@ function AiPanel({
         <Sparkles size={18} />
         <strong>AI 解析</strong>
       </div>
-      <div className={explanationLoading ? "explanation loading-lines" : "explanation"}>{explanationLoading ? "正在整理解析..." : explanation || "暂无解析内容。"}</div>
+      <div className={explanationLoading ? "explanation loading-lines" : "explanation"}>
+        {explanationLoading ? "正在整理解析..." : <MarkdownText content={explanation || "暂无解析内容。"} />}
+      </div>
 
       <div className="panel-title qa-title">
         <MessageSquareText size={18} />
@@ -1189,7 +1377,7 @@ function AiPanel({
       <div className="chat-log">
         {chat.map((message, index) => (
           <div key={`${message.role}-${index}`} className={message.role === "user" ? "bubble user" : "bubble assistant"}>
-            {message.content}
+            <MarkdownText content={message.content} />
           </div>
         ))}
         {chatLoading && <div className="bubble assistant">正在回答...</div>}
