@@ -390,6 +390,11 @@ button:active {
   margin-bottom: 10px;
 }
 
+.practice-topbar {
+  width: min(760px, 100%);
+  margin: 0 auto 10px;
+}
+
 .top-context {
   position: absolute;
   top: 50%;
@@ -448,13 +453,15 @@ button:active {
 }
 
 .control-strip {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   justify-content: space-between;
+  width: min(760px, 100%);
   max-height: 0;
-  margin-bottom: 0;
+  margin: 0 auto;
   overflow: hidden;
   opacity: 0;
   transition:
@@ -488,6 +495,19 @@ button:active {
   max-height: 260px;
   margin-bottom: 10px;
   opacity: 1;
+}
+
+.control-strip .segmented {
+  justify-self: start;
+}
+
+.control-strip .restart-button {
+  justify-self: end;
+}
+
+.control-strip .filters {
+  grid-column: 1 / -1;
+  justify-content: flex-start;
 }
 
 .segmented {
@@ -2853,6 +2873,8 @@ button:active {
   }
 
   .control-strip {
+    display: flex;
+    width: 100%;
     max-height: 0;
     margin-bottom: 0;
     overflow: hidden;

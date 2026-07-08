@@ -809,7 +809,6 @@ export function App() {
               progress={practiceProgress}
               mode={practiceMode}
               typeFilter={typeFilter}
-              currentIndex={currentIndex}
             />
             <section className={["question-panel", visibleResult ? "answered" : "", visibleResult?.correct ? "answered-correct" : visibleResult ? "answered-wrong" : ""].filter(Boolean).join(" ")}>
               <div className="question-card-head">
@@ -1607,22 +1606,19 @@ function PracticeProgress({
   progress,
   mode,
   typeFilter,
-  currentIndex,
 }: {
   progress: { total: number; completed: number; correct: number; percent: number };
   mode: PracticeMode;
   typeFilter: QuestionType | "all";
-  currentIndex: number;
 }) {
   const typeText = typeFilter === "all" ? "全部题型" : typeLabels[typeFilter];
-  const currentText = progress.total ? `${Math.max(0, currentIndex) + 1}/${progress.total}` : "0/0";
 
   return (
     <section className="practice-progress-panel" aria-label="刷题进度">
       <div className="practice-progress-head">
         <div>
           <strong>{modeLabels[mode]}进度</strong>
-          <span>{typeText} · 当前 {currentText}</span>
+          <span>{typeText}</span>
         </div>
         <em>{progress.percent}%</em>
       </div>
