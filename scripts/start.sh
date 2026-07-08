@@ -24,7 +24,7 @@ if [[ -f "$PID_FILE" ]]; then
   rm -f "$PID_FILE"
 fi
 
-if lsof -ti tcp:8787 >/dev/null 2>&1; then
+if lsof -tiTCP:8787 -sTCP:LISTEN >/dev/null 2>&1; then
   echo "Port 8787 is already in use. Run npm stop first, or free the port manually."
   exit 1
 fi

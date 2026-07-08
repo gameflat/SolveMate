@@ -92,6 +92,14 @@ button:active {
   font-size: 13px;
 }
 
+.mobile-menu-toggle {
+  display: none;
+}
+
+.mobile-nav-panel {
+  display: contents;
+}
+
 .bank-switcher {
   display: grid;
   gap: 8px;
@@ -160,7 +168,7 @@ button:active {
 
 .workspace {
   min-width: 0;
-  padding: 24px;
+  padding: 18px;
   animation: page-in 0.28s ease both;
 }
 
@@ -179,8 +187,12 @@ button:active {
 
 .topbar {
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.top-actions {
+  justify-content: flex-end;
 }
 
 .eyebrow {
@@ -192,17 +204,27 @@ button:active {
 .page-title {
   margin: 0;
   color: #121a18;
-  font-size: 28px;
+  font-size: 24px;
   line-height: 1.25;
 }
 
 .control-strip {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 8px;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
+}
+
+.control-toggle {
+  display: none;
+}
+
+.control-toggle em {
+  margin-left: auto;
+  color: #68736f;
+  font-style: normal;
 }
 
 .segmented {
@@ -217,7 +239,7 @@ button:active {
 
 .segmented button {
   min-height: 34px;
-  padding: 0 12px;
+  padding: 0 10px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -318,8 +340,8 @@ button:active {
 
 .practice-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.18fr) minmax(330px, 0.82fr);
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.42fr);
+  gap: 12px;
   align-items: start;
 }
 
@@ -334,7 +356,7 @@ button:active {
 }
 
 .question-panel {
-  padding: 24px;
+  padding: 18px;
   animation: panel-in 0.24s ease both;
 }
 
@@ -343,41 +365,41 @@ button:active {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 10px;
   color: #5d6965;
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .question-meta span {
   display: inline-flex;
   gap: 5px;
   align-items: center;
-  padding: 5px 8px;
+  padding: 4px 7px;
   border-radius: 6px;
   background: #eff4f1;
 }
 
 .question-title {
-  margin: 0 0 22px;
+  margin: 0 0 16px;
   color: #121a18;
-  font-size: 24px;
-  line-height: 1.55;
+  font-size: 21px;
+  line-height: 1.48;
   font-weight: 750;
 }
 
 .options {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .option {
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
   align-items: center;
   width: 100%;
-  min-height: 58px;
-  padding: 10px 12px;
+  min-height: 48px;
+  padding: 8px 10px;
   border: 1px solid #d8e1dc;
   border-radius: 8px;
   background: #ffffff;
@@ -386,8 +408,8 @@ button:active {
 
 .option span {
   display: grid;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   place-items: center;
   border-radius: 8px;
   background: #edf3ef;
@@ -397,7 +419,7 @@ button:active {
 
 .option p {
   margin: 0;
-  line-height: 1.55;
+  line-height: 1.45;
 }
 
 .option.checked {
@@ -453,14 +475,54 @@ button:active {
 }
 
 .question-actions {
-  margin-top: 20px;
+  margin-top: 14px;
+}
+
+.practice-nav {
+  display: grid;
+  grid-template-columns: 1fr 1.35fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.nav-action {
+  display: inline-flex;
+  min-height: 46px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid #cdd8d2;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #26322f;
+  font-weight: 700;
+}
+
+.primary-next {
+  border-color: #216b5c;
+  background: #216b5c;
+  color: #ffffff;
+}
+
+.restart-button {
+  min-height: 34px;
+}
+
+.empty-practice {
+  display: grid;
+  gap: 8px;
+  padding: 28px;
+}
+
+.empty-practice span {
+  color: #65716c;
 }
 
 .result {
   display: flex;
   gap: 10px;
-  margin-top: 18px;
-  padding: 12px;
+  margin-top: 12px;
+  padding: 10px;
   border-radius: 8px;
   line-height: 1.5;
 }
@@ -483,7 +545,7 @@ button:active {
 
 .side-panel {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .mini-grid {
@@ -494,8 +556,8 @@ button:active {
 
 .ai-panel {
   display: grid;
-  gap: 12px;
-  padding: 16px;
+  gap: 10px;
+  padding: 12px;
 }
 
 .panel-title .icon-button {
@@ -507,8 +569,8 @@ button:active {
 }
 
 .explanation {
-  min-height: 150px;
-  max-height: 300px;
+  min-height: 112px;
+  max-height: 220px;
   overflow: auto;
   white-space: pre-wrap;
   padding: 12px;
@@ -521,8 +583,8 @@ button:active {
 .chat-log {
   display: grid;
   gap: 8px;
-  min-height: 120px;
-  max-height: 230px;
+  min-height: 82px;
+  max-height: 160px;
   overflow: auto;
   padding: 10px;
   border: 1px solid #e0e8e4;
@@ -1188,11 +1250,70 @@ button:active {
   .sidebar {
     position: static;
     height: auto;
+    padding: 12px;
   }
 
-  .bank-switcher,
-  .nav {
+  .brand {
+    gap: 10px;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .brand svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .brand span {
+    font-size: 12px;
+  }
+
+  .mobile-menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 34px;
+    margin-left: auto;
+    padding: 0 10px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    color: #eef6f2;
+  }
+
+  .mobile-nav-panel {
+    display: block;
+    max-height: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition:
+      max-height 0.22s ease,
+      opacity 0.18s ease,
+      margin-top 0.18s ease;
+  }
+
+  .mobile-nav-panel.open {
+    max-height: 320px;
+    margin-top: 10px;
+    opacity: 1;
+  }
+
+  .bank-switcher {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-top: 0;
+  }
+
+  .nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-top: 8px;
+  }
+
+  .bank-tab,
+  .nav button {
+    min-height: 36px;
+    padding: 0 9px;
+    gap: 7px;
+    font-size: 13px;
   }
 
   .practice-layout,
@@ -1215,7 +1336,7 @@ button:active {
 
 @media (max-width: 700px) {
   .workspace {
-    padding: 14px;
+    padding: 10px;
   }
 
   .topbar,
@@ -1224,10 +1345,69 @@ button:active {
     flex-direction: column;
   }
 
-  .top-actions,
+  .topbar {
+    gap: 8px;
+  }
+
+  .eyebrow {
+    margin-bottom: 2px;
+    font-size: 12px;
+  }
+
+  .page-title {
+    font-size: 20px;
+  }
+
+  .control-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 38px;
+    margin-bottom: 8px;
+    padding: 0 12px;
+    border: 1px solid #cdd8d2;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #26322f;
+  }
+
+  .control-strip {
+    max-height: 0;
+    margin-bottom: 0;
+    overflow: hidden;
+    opacity: 0;
+    transition:
+      max-height 0.2s ease,
+      opacity 0.18s ease,
+      margin-bottom 0.18s ease;
+  }
+
+  .control-strip.open {
+    max-height: 260px;
+    margin-bottom: 10px;
+    opacity: 1;
+  }
+
+  .top-actions {
+    justify-content: flex-start;
+  }
+
   .filters {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .top-actions .action {
+    min-width: 0;
+    min-height: 36px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+
+  .top-actions .action svg {
+    width: 15px;
+    height: 15px;
   }
 
   .segmented {
@@ -1235,9 +1415,70 @@ button:active {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .mini-grid,
   .metric-grid {
     grid-template-columns: 1fr;
+  }
+
+  .question-panel {
+    padding: 12px;
+  }
+
+  .question-title {
+    margin-bottom: 12px;
+    font-size: 18px;
+    line-height: 1.42;
+  }
+
+  .question-meta {
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .option {
+    grid-template-columns: 30px minmax(0, 1fr);
+    min-height: 42px;
+    padding: 7px 8px;
+  }
+
+  .option span {
+    width: 26px;
+    height: 26px;
+    border-radius: 7px;
+  }
+
+  .question-actions {
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 1fr;
+  }
+
+  .question-actions button {
+    min-width: 0;
+    min-height: 38px;
+    padding: 0 8px;
+    font-size: 13px;
+  }
+
+  .practice-nav {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .nav-action {
+    min-height: 44px;
+  }
+
+  .ai-panel {
+    padding: 10px;
+  }
+
+  .explanation {
+    min-height: 78px;
+    max-height: 150px;
+  }
+
+  .chat-log {
+    min-height: 72px;
+    max-height: 128px;
   }
 
   .calendar-weekdays,
@@ -1294,15 +1535,15 @@ button:active {
   }
 
   .page-title {
-    font-size: 24px;
+    font-size: 20px;
   }
 
   .question-title {
-    font-size: 21px;
+    font-size: 18px;
   }
 
   .question-panel {
-    padding: 16px;
+    padding: 12px;
   }
 
   .row-item,

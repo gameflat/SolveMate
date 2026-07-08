@@ -130,16 +130,26 @@ export async function recordAttempt(username, { questionId, bankId, answer, corr
   return publicUserState(user);
 }
 
-export async function saveProgress(username, { bankId, questionId, mode, typeFilter }) {
+export async function saveProgress(username, { bankId, questionId, mode, typeFilter, session }) {
   const store = await readStore();
   const user = getOrCreateUser(store, username);
+  const progressMode = normalizeMode(mode);
   if (questionId) user.progress.lastQuestionId = questionId;
   if (bankId) {
     user.progress.lastBankId = bankId;
     if (questionId) user.progress.currentByBank[bankId] = questionId;
   }
-  if (mode) user.progress.mode = mode;
+  if (progressMode) user.progress.mode = progressMode;
   if (typeFilter) user.progress.typeFilter = typeFilter;
+  if (session?.key) {
+    user.progress.sessions = user.progress.sessions || {};
+    user.progress.sessions[session.key] = {
+      currentQuestionId: String(session.currentQuestionId || questionId || ""),
+      order: Array.isArray(session.order) ? session.order.map(String) : [],
+      index: Math.max(0, Number(session.index) || 0),
+      updatedAt: new Date().toISOString(),
+    };
+  }
   await writeStore(store);
   return publicUserState(user);
 }
@@ -185,6 +195,7 @@ export async function resetUser(username) {
 }
 
 function publicUserState(user) {
+  user.progress = normalizeProgress(user.progress);
   return {
     username: user.profile.username,
     profile: user.profile,
@@ -262,7 +273,24 @@ function emptyProgress() {
     currentByBank: {},
     mode: "random",
     typeFilter: "all",
+    sessions: {},
   };
+}
+
+function normalizeProgress(progress = {}) {
+  return {
+    ...emptyProgress(),
+    ...progress,
+    mode: normalizeMode(progress.mode) || "random",
+    currentByBank: progress.currentByBank || {},
+    sessions: progress.sessions || {},
+  };
+}
+
+function normalizeMode(mode) {
+  if (mode === "custom") return "favorites";
+  if (["random", "sequential", "favorites", "mistakes"].includes(mode)) return mode;
+  return "";
 }
 
 function incrementPeriod(bucket, key, correct, seconds) {

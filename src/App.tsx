@@ -12,12 +12,13 @@ import {
   History,
   Library,
   ListChecks,
+  ListFilter,
   LogOut,
+  Menu,
   MessageSquareText,
   RefreshCcw,
   RotateCw,
   Search,
-  Shuffle,
   Sparkles,
   Target,
   Timer,
@@ -29,7 +30,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 type QuestionType = "single" | "multiple" | "judge" | "fill" | "short" | "unknown";
-type PracticeMode = "random" | "sequential" | "custom" | "mistakes";
+type PracticeMode = "random" | "sequential" | "favorites" | "mistakes";
 type View = "practice" | "bank" | "stats" | "mistakes" | "favorites" | "ai";
 
 type Question = {
@@ -56,6 +57,7 @@ type BankMeta = {
 
 type PeriodStat = { attempts: number; correct: number; totalSeconds: number };
 type QuestionStat = PeriodStat & { lastAt?: string; lastAnswer?: string };
+type PracticeSession = { currentQuestionId: string; order: string[]; index: number; updatedAt?: string };
 
 type UserState = {
   username: string;
@@ -74,6 +76,7 @@ type UserState = {
     currentByBank: Record<string, string>;
     mode: PracticeMode;
     typeFilter: QuestionType | "all";
+    sessions?: Record<string, PracticeSession>;
   };
   checkins: { checkedToday: boolean; streak: number; days: string[]; requiredCorrect?: number; todayCorrect?: number; unlocked?: boolean };
 };
@@ -101,7 +104,7 @@ const EMPTY_STATE: UserState = {
   favorites: [],
   mistakes: {},
   stats: { attempts: 0, correct: 0, totalSeconds: 0, byQuestion: {}, daily: {}, weekly: {}, monthly: {}, recentAttempts: [] },
-  progress: { lastBankId: "", lastQuestionId: "", currentByBank: {}, mode: "random", typeFilter: "all" },
+  progress: { lastBankId: "", lastQuestionId: "", currentByBank: {}, mode: "random", typeFilter: "all", sessions: {} },
   checkins: { checkedToday: false, streak: 0, days: [] },
 };
 
@@ -117,7 +120,7 @@ const typeLabels: Record<QuestionType, string> = {
 const modeLabels: Record<PracticeMode, string> = {
   random: "随机",
   sequential: "顺序",
-  custom: "自选",
+  favorites: "收藏",
   mistakes: "错题",
 };
 
@@ -129,6 +132,8 @@ export function App() {
   const [activeView, setActiveView] = useState<View>("practice");
   const [typeFilter, setTypeFilter] = useState<QuestionType | "all">("all");
   const [practiceMode, setPracticeMode] = useState<PracticeMode>("random");
+  const [controlsOpen, setControlsOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [currentId, setCurrentId] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [textAnswer, setTextAnswer] = useState("");
@@ -170,26 +175,53 @@ export function App() {
     return () => window.clearInterval(timer);
   }, [currentId, questions]);
 
-  useEffect(() => {
-    if (!booted.current || !currentId) return;
-    void authJson("/api/me/progress", {
-      method: "POST",
-      body: JSON.stringify({ bankId: activeBankId, questionId: currentId, mode: practiceMode, typeFilter }),
-    }).then(setUserState);
-  }, [activeBankId, currentId, practiceMode, typeFilter]);
-
   const activeBank = banks.find((bank) => bank.id === activeBankId);
   const filtered = useMemo(() => {
     const base = typeFilter === "all" ? questions : questions.filter((question) => question.type === typeFilter);
     if (practiceMode === "mistakes") return base.filter((question) => userState.mistakes[question.id]);
+    if (practiceMode === "favorites") return base.filter((question) => userState.favorites.includes(question.id));
     return base;
-  }, [questions, typeFilter, practiceMode, userState.mistakes]);
+  }, [questions, typeFilter, practiceMode, userState.mistakes, userState.favorites]);
+
+  const practiceKey = getProgressKey(activeBankId, practiceMode, typeFilter);
+  const activeOrder = useMemo(
+    () => getPracticeOrder(filtered, userState.progress.sessions?.[practiceKey], practiceMode),
+    [filtered, userState.progress.sessions, practiceKey, practiceMode],
+  );
+
+  useEffect(() => {
+    if (!booted.current || !currentId) return;
+    const order = activeOrder.length ? activeOrder : filtered.map((question) => question.id);
+    const index = Math.max(0, order.indexOf(currentId));
+    void authJson("/api/me/progress", {
+      method: "POST",
+      body: JSON.stringify({
+        bankId: activeBankId,
+        questionId: currentId,
+        mode: practiceMode,
+        typeFilter,
+        session: { key: practiceKey, currentQuestionId: currentId, order, index },
+      }),
+    }).then(setUserState);
+  }, [activeBankId, currentId, practiceMode, typeFilter, practiceKey]);
+
+  useEffect(() => {
+    if (!booted.current || !filtered.length) return;
+    const savedSession = userState.progress.sessions?.[practiceKey];
+    if (savedSession?.currentQuestionId && filtered.some((question) => question.id === savedSession.currentQuestionId)) {
+      if (currentId !== savedSession.currentQuestionId) setCurrentId(savedSession.currentQuestionId);
+      return;
+    }
+    if (filtered.some((question) => question.id === currentId)) return;
+    const session = createPracticeSession(filtered, practiceMode, savedSession);
+    if (session.currentQuestionId) setCurrentId(session.currentQuestionId);
+  }, [filtered, practiceMode, practiceKey, userState.progress.sessions]);
 
   const current = useMemo(
-    () => questions.find((question) => question.id === currentId) || filtered[0] || questions[0],
+    () => filtered.find((question) => question.id === currentId) || filtered[0] || questions[0],
     [questions, currentId, filtered],
   );
-  const currentIndex = useMemo(() => filtered.findIndex((question) => question.id === current?.id), [filtered, current]);
+  const currentIndex = useMemo(() => activeOrder.findIndex((id) => id === current?.id), [activeOrder, current]);
   const bankQuestions = useMemo(() => {
     const term = normalizeSearch(bankSearch);
     const source = typeFilter === "all" ? questions : questions.filter((question) => question.type === typeFilter);
@@ -231,7 +263,7 @@ export function App() {
       setUserState(me);
       setBanks(bankPayload.banks);
       setHealth(healthPayload);
-      setPracticeMode(me.progress.mode || "random");
+      setPracticeMode(normalizePracticeMode(me.progress.mode));
       setTypeFilter(me.progress.typeFilter || "all");
       if (!me.checkins.checkedToday) {
         const promptKey = `${me.username || "local"}:${chinaDateKey()}`;
@@ -287,22 +319,65 @@ export function App() {
     setActiveView("practice");
   }
 
-  function chooseRandom() {
-    const pool = filtered.length ? filtered : questions;
-    const next = pool[Math.floor(Math.random() * pool.length)];
-    if (next) chooseQuestion(next.id);
+  function openView(view: View) {
+    setActiveView(view);
+    setMobileNavOpen(false);
+  }
+
+  function changePracticeMode(mode: PracticeMode) {
+    setPracticeMode(mode);
+    setActiveView("practice");
+    const pool = getPracticePool(questions, typeFilter, mode, userState);
+    if (!pool.length) {
+      setStatus(emptyPoolMessage(mode));
+      return;
+    }
+    const key = getProgressKey(activeBankId, mode, typeFilter);
+    const session = createPracticeSession(pool, mode, userState.progress.sessions?.[key]);
+    setCurrentId(session.currentQuestionId);
+  }
+
+  function changeTypeFilter(type: QuestionType | "all") {
+    setTypeFilter(type);
+    const pool = getPracticePool(questions, type, practiceMode, userState);
+    if (!pool.length) {
+      setStatus("当前筛选条件下没有题目。");
+      return;
+    }
+    const key = getProgressKey(activeBankId, practiceMode, type);
+    const session = createPracticeSession(pool, practiceMode, userState.progress.sessions?.[key]);
+    setCurrentId(session.currentQuestionId);
   }
 
   function chooseNext() {
-    const pool = filtered.length ? filtered : questions;
-    const index = pool.findIndex((question) => question.id === current?.id);
-    chooseQuestion(pool[index >= 0 ? (index + 1) % pool.length : 0]?.id || pool[0]?.id);
+    const next = nextQuestionId(activeOrder, current?.id || "", 1);
+    if (next) chooseQuestion(next);
   }
 
   function choosePrevious() {
-    const pool = filtered.length ? filtered : questions;
-    const index = pool.findIndex((question) => question.id === current?.id);
-    chooseQuestion(pool[index >= 0 ? (index - 1 + pool.length) % pool.length : pool.length - 1]?.id || pool[0]?.id);
+    const next = nextQuestionId(activeOrder, current?.id || "", -1);
+    if (next) chooseQuestion(next);
+  }
+
+  function restartPractice() {
+    const pool = getPracticePool(questions, typeFilter, practiceMode, userState);
+    if (!pool.length) {
+      setStatus(emptyPoolMessage(practiceMode));
+      return;
+    }
+    const session = createPracticeSession(pool, practiceMode, null, true);
+    setCurrentId(session.currentQuestionId);
+    void authJson("/api/me/progress", {
+      method: "POST",
+      body: JSON.stringify({
+        bankId: activeBankId,
+        questionId: session.currentQuestionId,
+        mode: practiceMode,
+        typeFilter,
+        session: { key: practiceKey, ...session },
+      }),
+    }).then(setUserState);
+    setStatus(practiceMode === "random" ? "已重新打乱，开始重刷。" : "已清除当前模块进度，开始重刷。");
   }
 
   function toggleOption(key: string) {
@@ -472,37 +547,50 @@ export function App() {
             <strong>SolveMate</strong>
             <span>{userState.username || "local"} · {questions.length} 题</span>
           </div>
+          <button className="mobile-menu-toggle" onClick={() => setMobileNavOpen((open) => !open)} title="展开导航">
+            <Menu size={18} />
+            <span>菜单</span>
+          </button>
         </div>
 
-        <div className="bank-switcher">
-          {banks.map((bank) => (
-            <button key={bank.id} className={bank.id === activeBankId ? "bank-tab active" : "bank-tab"} onClick={() => switchBank(bank.id)}>
-              {bank.isLegacy ? <History size={16} /> : <Library size={16} />}
-              <span>{bank.isLegacy ? "过往题库" : "当前题库"}</span>
+        <div className={mobileNavOpen ? "mobile-nav-panel open" : "mobile-nav-panel"}>
+          <div className="bank-switcher">
+            {banks.map((bank) => (
+              <button
+                key={bank.id}
+                className={bank.id === activeBankId ? "bank-tab active" : "bank-tab"}
+                onClick={() => {
+                  switchBank(bank.id);
+                  setMobileNavOpen(false);
+                }}
+              >
+                {bank.isLegacy ? <History size={16} /> : <Library size={16} />}
+                <span>{bank.isLegacy ? "过往题库" : "当前题库"}</span>
+              </button>
+            ))}
+          </div>
+
+          <nav className="nav">
+            <button className={activeView === "practice" ? "active" : ""} onClick={() => openView("practice")}>
+              <Target size={18} /> 练习
             </button>
-          ))}
+            <button className={activeView === "bank" ? "active" : ""} onClick={() => openView("bank")}>
+              <Library size={18} /> 题库
+            </button>
+            <button className={activeView === "stats" ? "active" : ""} onClick={() => openView("stats")}>
+              <BarChart3 size={18} /> 统计
+            </button>
+            <button className={activeView === "mistakes" ? "active" : ""} onClick={() => openView("mistakes")}>
+              <XCircle size={18} /> 错题
+            </button>
+            <button className={activeView === "favorites" ? "active" : ""} onClick={() => openView("favorites")}>
+              <Bookmark size={18} /> 收藏
+            </button>
+            <button className={activeView === "ai" ? "active" : ""} onClick={() => openView("ai")}>
+              <Sparkles size={18} /> AI
+            </button>
+          </nav>
         </div>
-
-        <nav className="nav">
-          <button className={activeView === "practice" ? "active" : ""} onClick={() => setActiveView("practice")}>
-            <Target size={18} /> 练习
-          </button>
-          <button className={activeView === "bank" ? "active" : ""} onClick={() => setActiveView("bank")}>
-            <Library size={18} /> 题库
-          </button>
-          <button className={activeView === "stats" ? "active" : ""} onClick={() => setActiveView("stats")}>
-            <BarChart3 size={18} /> 统计
-          </button>
-          <button className={activeView === "mistakes" ? "active" : ""} onClick={() => setActiveView("mistakes")}>
-            <XCircle size={18} /> 错题
-          </button>
-          <button className={activeView === "favorites" ? "active" : ""} onClick={() => setActiveView("favorites")}>
-            <Bookmark size={18} /> 收藏
-          </button>
-          <button className={activeView === "ai" ? "active" : ""} onClick={() => setActiveView("ai")}>
-            <Sparkles size={18} /> AI
-          </button>
-        </nav>
 
         <div className="sidebar-footer">
           <span>正确率 {accuracy}%</span>
@@ -527,32 +615,32 @@ export function App() {
               title={checkinUnlocked ? "签到" : `刷对${checkinRequiredCorrect}题后解锁签到`}
             >
               <CalendarCheck size={18} />
-              {userState.checkins.checkedToday ? `连续 ${userState.checkins.streak} 天` : checkinReady ? "签到已解锁" : `刷对${checkinRequiredCorrect}题后解锁签到`}
-            </button>
-            <button className="icon-button" title="随机一题" onClick={chooseRandom}>
-              <Shuffle size={18} />
-            </button>
-            <button className="action" onClick={choosePrevious}>
-              <ArrowLeft size={18} />
-              上一题
-            </button>
-            <button className="action" onClick={chooseNext}>
-              下一题
+              {userState.checkins.checkedToday ? "已签" : checkinReady ? "签到" : "未解锁"}
             </button>
           </div>
         </header>
 
-        <div className="control-strip">
+        <button className="control-toggle" onClick={() => setControlsOpen((open) => !open)}>
+          <ListFilter size={18} />
+          <span>刷题设置</span>
+          <em>{modeLabels[practiceMode]} · {typeFilter === "all" ? "全部" : typeLabels[typeFilter]}</em>
+        </button>
+
+        <div className={controlsOpen ? "control-strip open" : "control-strip"}>
           <div className="segmented">
-            {(["random", "sequential", "custom", "mistakes"] as const).map((mode) => (
-              <button key={mode} className={practiceMode === mode ? "active" : ""} onClick={() => setPracticeMode(mode)}>
+            {(["random", "sequential", "favorites", "mistakes"] as const).map((mode) => (
+              <button key={mode} className={practiceMode === mode ? "active" : ""} onClick={() => changePracticeMode(mode)}>
                 {modeLabels[mode]}
               </button>
             ))}
           </div>
+          <button className="icon-text restart-button" onClick={restartPractice}>
+            <RefreshCcw size={17} />
+            重刷当前
+          </button>
           <div className="filters">
             {(["all", "single", "multiple", "judge", "fill", "short"] as const).map((type) => (
-              <button key={type} className={typeFilter === type ? "chip active" : "chip"} onClick={() => setTypeFilter(type)}>
+              <button key={type} className={typeFilter === type ? "chip active" : "chip"} onClick={() => changeTypeFilter(type)}>
                 {type === "all" ? "全部" : typeLabels[type]}
               </button>
             ))}
@@ -561,7 +649,14 @@ export function App() {
 
         {status && <FloatingNotice message={status} onClose={() => setStatus("")} />}
 
-        {activeView === "practice" && (
+        {activeView === "practice" && filtered.length === 0 && (
+          <section className="table-panel empty-practice">
+            <strong>{emptyPoolMessage(practiceMode)}</strong>
+            <span>可以切换题型、切换模式，或收藏题目后再进入收藏刷题。</span>
+          </section>
+        )}
+
+        {activeView === "practice" && filtered.length > 0 && (
           <div className="practice-layout">
             <section className="question-panel">
               <div className="question-meta">
@@ -629,10 +724,19 @@ export function App() {
                   AI 解析
                 </button>
               </div>
+              <div className="practice-nav">
+                <button className="nav-action" onClick={choosePrevious}>
+                  <ArrowLeft size={19} />
+                  上一题
+                </button>
+                <button className="nav-action primary-next" onClick={chooseNext}>
+                  下一题
+                  <ChevronRight size={19} />
+                </button>
+              </div>
             </section>
 
             <section className="side-panel">
-              <MiniStats accuracy={accuracy} averageSeconds={averageSeconds} state={userState} />
               <AiPanel
                 explanation={explanation}
                 explanationLoading={explanationLoading}
@@ -711,18 +815,6 @@ function FloatingNotice({ message, onClose }: { message: string; onClose: () => 
         <X size={16} />
       </button>
     </div>
-  );
-}
-
-function MiniStats({ accuracy, averageSeconds, state }: { accuracy: number; averageSeconds: number; state: UserState }) {
-  const todayKey = chinaDateKey();
-  const today = state.stats.daily[todayKey] || { attempts: 0, correct: 0, totalSeconds: 0 };
-  return (
-    <section className="mini-grid">
-      <Metric label="总正确率" value={`${accuracy}%`} icon={<Trophy size={18} />} />
-      <Metric label="今日作答" value={`${today.attempts}`} icon={<ListChecks size={18} />} />
-      <Metric label="平均用时" value={formatSeconds(averageSeconds)} icon={<Timer size={18} />} />
-    </section>
   );
 }
 
@@ -867,7 +959,7 @@ function CheckinModal({
         <div className="checkin-hero">
           <div>
             <span className="eyebrow">今日签到</span>
-            <h2 id="checkin-title">先打卡，再开始练习</h2>
+            <h2 id="checkin-title">{unlocked ? "今日签到已解锁" : `刷对${requiredCorrect}题后解锁签到`}</h2>
           </div>
           <div className="streak-badge">
             <CalendarCheck size={20} />
@@ -1158,6 +1250,69 @@ function normalizeText(value: string) {
 
 function normalizeSearch(value: string) {
   return value.replace(/\s+/g, "").toLowerCase();
+}
+
+function getPracticePool(questions: Question[], typeFilter: QuestionType | "all", mode: PracticeMode, state: UserState) {
+  const byType = typeFilter === "all" ? questions : questions.filter((question) => question.type === typeFilter);
+  if (mode === "mistakes") return byType.filter((question) => state.mistakes[question.id]);
+  if (mode === "favorites") return byType.filter((question) => state.favorites.includes(question.id));
+  return byType;
+}
+
+function getProgressKey(bankId: string, mode: PracticeMode, typeFilter: QuestionType | "all") {
+  return `${bankId || "bank"}:${mode}:${typeFilter}`;
+}
+
+function getPracticeOrder(pool: Question[], session: PracticeSession | undefined, mode: PracticeMode) {
+  const poolIds = pool.map((question) => question.id);
+  const poolSet = new Set(poolIds);
+  if (mode !== "random") return poolIds;
+  const saved = session?.order?.filter((id) => poolSet.has(id)) || [];
+  const savedSet = new Set(saved);
+  const missing = poolIds.filter((id) => !savedSet.has(id));
+  return [...saved, ...shuffleIds(missing)];
+}
+
+function createPracticeSession(pool: Question[], mode: PracticeMode, saved?: PracticeSession | null, reset = false): PracticeSession {
+  const order = reset || mode === "random" && !saved?.order?.length
+    ? mode === "random" ? shuffleIds(pool.map((question) => question.id)) : pool.map((question) => question.id)
+    : getPracticeOrder(pool, saved || undefined, mode);
+  const currentQuestionId = !reset && saved?.currentQuestionId && order.includes(saved.currentQuestionId)
+    ? saved.currentQuestionId
+    : order[0] || "";
+  return {
+    currentQuestionId,
+    order,
+    index: Math.max(0, order.indexOf(currentQuestionId)),
+  };
+}
+
+function nextQuestionId(order: string[], currentId: string, direction: 1 | -1) {
+  if (!order.length) return "";
+  const index = order.indexOf(currentId);
+  if (index < 0) return order[0];
+  return order[(index + direction + order.length) % order.length];
+}
+
+function shuffleIds(ids: string[]) {
+  const copy = [...ids];
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [copy[index], copy[swapIndex]] = [copy[swapIndex], copy[index]];
+  }
+  return copy;
+}
+
+function normalizePracticeMode(mode: unknown): PracticeMode {
+  if (mode === "custom") return "favorites";
+  if (mode === "random" || mode === "sequential" || mode === "favorites" || mode === "mistakes") return mode;
+  return "random";
+}
+
+function emptyPoolMessage(mode: PracticeMode) {
+  if (mode === "mistakes") return "当前题型下还没有错题。";
+  if (mode === "favorites") return "当前题型下还没有收藏题。";
+  return "当前筛选条件下没有题目。";
 }
 
 function getBlankCount(question: Question) {
