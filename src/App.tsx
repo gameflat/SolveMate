@@ -33,6 +33,7 @@ import type { ReactNode } from "react";
 
 type QuestionType = "single" | "multiple" | "judge" | "fill" | "short" | "unknown";
 type PracticeMode = "random" | "sequential" | "favorites" | "mistakes";
+type QuickBrowseFilter = "all" | "unanswered" | "answered";
 type View = "practice" | "bank" | "manage" | "stats" | "mistakes" | "favorites" | "ai";
 
 type Question = {
@@ -166,6 +167,9 @@ export function App() {
   const [practiceMode, setPracticeMode] = useState<PracticeMode>("random");
   const [controlsOpen, setControlsOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [quickBrowserOpen, setQuickBrowserOpen] = useState(false);
+  const [quickBrowserFilter, setQuickBrowserFilter] = useState<QuickBrowseFilter>("all");
+  const [quickBrowserSearch, setQuickBrowserSearch] = useState("");
   const [currentId, setCurrentId] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [textAnswer, setTextAnswer] = useState("");
@@ -191,6 +195,15 @@ export function App() {
   useEffect(() => {
     void bootstrap();
   }, []);
+
+  useEffect(() => {
+    if (!quickBrowserOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setQuickBrowserOpen(false);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [quickBrowserOpen]);
 
   useEffect(() => {
     currentIdRef.current = currentId;
@@ -255,6 +268,11 @@ export function App() {
     [questions, currentId, filtered],
   );
   const currentIndex = useMemo(() => activeOrder.findIndex((id) => id === current?.id), [activeOrder, current]);
+  const orderedPracticeQuestions = useMemo(() => {
+    const byId = new Map(filtered.map((question) => [question.id, question]));
+    const ordered = activeOrder.map((id) => byId.get(id)).filter(Boolean) as Question[];
+    return ordered.length ? ordered : filtered;
+  }, [activeOrder, filtered]);
   const bankQuestions = useMemo(() => {
     const term = normalizeSearch(bankSearch);
     const source = bankTypeFilter === "all" ? questions : questions.filter((question) => question.type === bankTypeFilter);
@@ -412,9 +430,15 @@ export function App() {
     setActiveView("practice");
   }
 
+  function chooseQuestionFromBrowser(id: string) {
+    chooseQuestion(id);
+    setQuickBrowserOpen(false);
+  }
+
   function openView(view: View) {
     setActiveView(view);
     setMobileNavOpen(false);
+    setQuickBrowserOpen(false);
   }
 
   function changePracticeMode(mode: PracticeMode) {
@@ -809,6 +833,7 @@ export function App() {
               progress={practiceProgress}
               mode={practiceMode}
               typeFilter={typeFilter}
+              onOpen={() => setQuickBrowserOpen(true)}
             />
             <section className={["question-panel", visibleResult ? "answered" : "", visibleResult?.correct ? "answered-correct" : visibleResult ? "answered-wrong" : ""].filter(Boolean).join(" ")}>
               <div className="question-card-head">
@@ -977,6 +1002,21 @@ export function App() {
 
         {activeView === "ai" && <AiStatus health={health} />}
       </section>
+      {quickBrowserOpen && activeView === "practice" && (
+        <QuickQuestionBrowser
+          questions={orderedPracticeQuestions}
+          results={activeSession?.results || {}}
+          currentId={current.id}
+          mode={practiceMode}
+          typeFilter={typeFilter}
+          filter={quickBrowserFilter}
+          search={quickBrowserSearch}
+          onFilter={setQuickBrowserFilter}
+          onSearch={setQuickBrowserSearch}
+          onChoose={chooseQuestionFromBrowser}
+          onClose={() => setQuickBrowserOpen(false)}
+        />
+      )}
       {showCheckinModal && (
         <CheckinModal
           state={userState}
@@ -1606,15 +1646,22 @@ function PracticeProgress({
   progress,
   mode,
   typeFilter,
+  onOpen,
 }: {
   progress: { total: number; completed: number; correct: number; percent: number };
   mode: PracticeMode;
   typeFilter: QuestionType | "all";
+  onOpen: () => void;
 }) {
   const typeText = typeFilter === "all" ? "全部题型" : typeLabels[typeFilter];
 
   return (
-    <section className="practice-progress-panel" aria-label="刷题进度">
+    <button
+      type="button"
+      className="practice-progress-panel clickable"
+      aria-label="打开题目快速浏览"
+      onClick={onOpen}
+    >
       <div className="practice-progress-head">
         <div>
           <strong>{modeLabels[mode]}进度</strong>
@@ -1630,7 +1677,115 @@ function PracticeProgress({
         <span>已通过 {progress.correct}</span>
         <span>剩余 {Math.max(0, progress.total - progress.completed)}</span>
       </div>
-    </section>
+    </button>
+  );
+}
+
+function QuickQuestionBrowser({
+  questions,
+  results,
+  currentId,
+  mode,
+  typeFilter,
+  filter,
+  search,
+  onFilter,
+  onSearch,
+  onChoose,
+  onClose,
+}: {
+  questions: Question[];
+  results: Record<string, SessionResult>;
+  currentId: string;
+  mode: PracticeMode;
+  typeFilter: QuestionType | "all";
+  filter: QuickBrowseFilter;
+  search: string;
+  onFilter: (filter: QuickBrowseFilter) => void;
+  onSearch: (search: string) => void;
+  onChoose: (id: string) => void;
+  onClose: () => void;
+}) {
+  const normalizedSearch = normalizeSearch(search);
+  const rows = questions
+    .map((question, index) => ({ question, index, result: results[question.id] }))
+    .filter(({ question, result }) => {
+      if (filter === "unanswered" && result) return false;
+      if (filter === "answered" && !result) return false;
+      if (!normalizedSearch) return true;
+      return normalizeSearch(`${question.sourceIndex} ${question.rawType} ${question.prompt}`).includes(normalizedSearch);
+    });
+  const answered = questions.filter((question) => results[question.id]).length;
+  const unanswered = Math.max(0, questions.length - answered);
+
+  return (
+    <div className="modal-backdrop quick-browser-backdrop" role="presentation" onClick={onClose}>
+      <section className="quick-browser-modal" role="dialog" aria-modal="true" aria-labelledby="quick-browser-title" onClick={(event) => event.stopPropagation()}>
+        <div className="quick-browser-head">
+          <div>
+            <span className="eyebrow">{modeLabels[mode]} · {typeFilter === "all" ? "全部题型" : typeLabels[typeFilter]}</span>
+            <h2 id="quick-browser-title">题目快速浏览</h2>
+          </div>
+          <button type="button" className="icon-button compact" onClick={onClose} title="关闭">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="quick-browser-summary">
+          <span>共 {questions.length} 题</span>
+          <span>未刷 {unanswered}</span>
+          <span>已刷 {answered}</span>
+        </div>
+
+        <div className="quick-browser-tools">
+          <div className="quick-browser-tabs" aria-label="题目状态筛选">
+            {([
+              ["all", "全部"],
+              ["unanswered", "未刷"],
+              ["answered", "已刷"],
+            ] as const).map(([value, label]) => (
+              <button type="button" key={value} className={filter === value ? "active" : ""} onClick={() => onFilter(value)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <label className="quick-browser-search">
+            <Search size={17} />
+            <input value={search} placeholder="搜索题号、题型或题干" onChange={(event) => onSearch(event.target.value)} />
+          </label>
+        </div>
+
+        <div className="quick-question-list">
+          {rows.length === 0 ? (
+            <div className="quick-browser-empty">
+              <Search size={22} />
+              <strong>没有匹配的题目</strong>
+              <span>切换筛选或清空搜索后再试。</span>
+            </div>
+          ) : (
+            rows.map(({ question, index, result }) => {
+              const active = question.id === currentId;
+              const statusClass = result ? (result.correct ? "correct" : "wrong") : "pending";
+              const statusText = result ? (result.correct ? "答对" : "答错") : "未刷";
+              return (
+                <button type="button" key={question.id} className={active ? "quick-question-row active" : "quick-question-row"} onClick={() => onChoose(question.id)}>
+                  <span className="quick-question-number">{index + 1}</span>
+                  <span className="quick-question-body">
+                    <strong>{question.prompt}</strong>
+                    <span className="quick-question-tags">
+                      <em>{typeLabels[question.type]}</em>
+                      <em>#{question.sourceIndex}</em>
+                      {active && <em className="current">当前</em>}
+                      <span className={`quick-question-status ${statusClass}`}>{statusText}</span>
+                    </span>
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </section>
+    </div>
   );
 }
 
