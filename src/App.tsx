@@ -608,12 +608,6 @@ export function App() {
     }
   }
 
-  async function startPrewarm() {
-    const payload = await authJson("/api/explanations/prewarm", { method: "POST" });
-    setStatus(payload.started ? "已开始后台初始化解析。" : "初始化任务已经在运行。");
-    void refreshHealth();
-  }
-
   async function refreshHealth() {
     setHealth(await fetch("/api/health").then((res) => res.json()));
   }
@@ -951,7 +945,7 @@ export function App() {
           />
         )}
 
-        {activeView === "ai" && <AiStatus health={health} onRefresh={refreshHealth} onPrewarm={startPrewarm} />}
+        {activeView === "ai" && <AiStatus health={health} />}
       </section>
       {showCheckinModal && (
         <CheckinModal
@@ -1549,26 +1543,71 @@ function PracticeProgress({
   );
 }
 
-function AiStatus({ health, onRefresh, onPrewarm }: { health: Health | null; onRefresh: () => void; onPrewarm: () => void }) {
+function AiStatus({ health }: { health: Health | null }) {
+  const questionCount = health?.questionCount || 0;
+  const explanationCacheCount = health?.explanationCacheCount || 0;
+  const cachePercent = questionCount ? Math.min(100, Math.round((explanationCacheCount / questionCount) * 100)) : 0;
+  const pregenTotal = health?.pregen.total || 0;
+  const pregenDone = health?.pregen.done || 0;
+  const pregenPercent = pregenTotal ? Math.min(100, Math.round((pregenDone / pregenTotal) * 100)) : 0;
+  const taskLabel = health?.pregen.running ? "运行中" : "空闲";
+  const hasError = Boolean(health?.pregen.lastError);
+
   return (
-    <section className="dashboard">
-      <div className="metric-grid">
-        <Metric label="AI 状态" value={health?.ai.configured ? "已配置" : "未配置"} icon={<Sparkles size={18} />} />
-        <Metric label="缓存解析" value={`${health?.explanationCacheCount || 0}/${health?.questionCount || 0}`} icon={<Library size={18} />} />
-        <Metric label="预生成进度" value={`${health?.pregen.done || 0}/${health?.pregen.total || 0}`} icon={<RotateCw size={18} />} />
-        <Metric label="失败数" value={`${health?.pregen.failed || 0}`} icon={<XCircle size={18} />} />
-      </div>
-      <div className="table-panel">
-        <div className="table-head">
-          <strong>解析初始化</strong>
-          <div className="inline-actions">
-            <button className="icon-text" onClick={onRefresh}><RotateCw size={18} /> 刷新</button>
-            <button className="primary" onClick={onPrewarm}>初始化全部解析</button>
-          </div>
+    <section className="dashboard ai-status-dashboard">
+      <section className={`ai-status-hero ${health?.ai.configured ? "online" : "offline"}`}>
+        <div className="ai-status-icon">
+          <Sparkles size={24} />
         </div>
-        <p className="muted">模型：{health?.ai.model || "未设置"}，服务：{health?.ai.baseUrl || "未设置"}</p>
-        {health?.pregen.running && <p className="muted">后台任务运行中，已处理 {health.pregen.done} 道题，其中跳过缓存 {health.pregen.cached} 道。</p>}
-        {health?.pregen.lastError && <p className="error-text">{health.pregen.lastError}</p>}
+        <div>
+          <span>AI 服务状态</span>
+          <strong>{health?.ai.configured ? "已配置" : "未配置"}</strong>
+          <p>{health?.ai.configured ? "解析、问答和简答评分服务可用。" : "配置模型服务后可启用 AI 能力。"}</p>
+        </div>
+        <em>{taskLabel}</em>
+      </section>
+
+      <div className="ai-status-grid">
+        <article className="ai-status-card">
+          <div className="ai-status-card-head">
+            <span><Library size={16} /> 缓存解析</span>
+            <strong>{cachePercent}%</strong>
+          </div>
+          <div className="ai-status-progress" aria-hidden="true">
+            <i style={{ width: `${cachePercent}%` }} />
+          </div>
+          <p>{explanationCacheCount}/{questionCount} 道题已有 AI 解析缓存。</p>
+        </article>
+
+        <article className="ai-status-card">
+          <div className="ai-status-card-head">
+            <span><RotateCw size={16} /> 后台任务</span>
+            <strong>{pregenDone}/{pregenTotal}</strong>
+          </div>
+          <div className="ai-status-progress" aria-hidden="true">
+            <i style={{ width: `${pregenPercent}%` }} />
+          </div>
+          <div className="ai-status-tags">
+            <span>跳过缓存 {health?.pregen.cached || 0}</span>
+            <span>失败 {health?.pregen.failed || 0}</span>
+          </div>
+        </article>
+
+        <article className="ai-status-card">
+          <div className="ai-status-card-head">
+            <span><Brain size={16} /> 模型信息</span>
+            <strong>{health?.ai.model || "未设置"}</strong>
+          </div>
+          <p>{health?.ai.baseUrl || "未设置服务地址"}</p>
+        </article>
+
+        <article className={`ai-status-card ${hasError ? "warning" : ""}`}>
+          <div className="ai-status-card-head">
+            <span><XCircle size={16} /> 错误状态</span>
+            <strong>{hasError ? "需查看" : "正常"}</strong>
+          </div>
+          <p>{health?.pregen.lastError || "暂无后台任务错误。"}</p>
+        </article>
       </div>
     </section>
   );
