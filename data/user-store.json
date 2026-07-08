@@ -4,7 +4,7 @@
       "profile": {
         "username": "zhan",
         "createdAt": "2026-07-08T03:09:49.600Z",
-        "lastLoginAt": "2026-07-08T08:47:06.257Z"
+        "lastLoginAt": "2026-07-08T08:47:46.939Z"
       },
       "favorites": {
         "b65cbd3c6c76": "2026-07-08T03:41:56.831Z",
@@ -50,12 +50,17 @@
           "count": 1,
           "lastAt": "2026-07-08T08:29:32.650Z",
           "lastAnswer": "正确"
+        },
+        "b0a52001c0cd": {
+          "count": 1,
+          "lastAt": "2026-07-08T08:48:22.486Z",
+          "lastAnswer": "BC"
         }
       },
       "stats": {
-        "attempts": 22,
+        "attempts": 23,
         "correct": 14,
-        "totalSeconds": 259,
+        "totalSeconds": 265,
         "byQuestion": {
           "b65cbd3c6c76": {
             "attempts": 2,
@@ -196,30 +201,46 @@
             "totalSeconds": 51,
             "lastAt": "2026-07-08T08:34:17.114Z",
             "lastAnswer": "ABC"
+          },
+          "b0a52001c0cd": {
+            "attempts": 1,
+            "correct": 0,
+            "totalSeconds": 6,
+            "lastAt": "2026-07-08T08:48:22.486Z",
+            "lastAnswer": "BC"
           }
         },
         "daily": {
           "2026-07-08": {
-            "attempts": 22,
+            "attempts": 23,
             "correct": 14,
-            "totalSeconds": 259
+            "totalSeconds": 265
           }
         },
         "weekly": {
           "2026-07-06": {
-            "attempts": 22,
+            "attempts": 23,
             "correct": 14,
-            "totalSeconds": 259
+            "totalSeconds": 265
           }
         },
         "monthly": {
           "2026-07": {
-            "attempts": 22,
+            "attempts": 23,
             "correct": 14,
-            "totalSeconds": 259
+            "totalSeconds": 265
           }
         },
         "recentAttempts": [
+          {
+            "questionId": "b0a52001c0cd",
+            "bankId": "mto-loru-202103",
+            "correct": false,
+            "seconds": 6,
+            "answer": "BC",
+            "at": "2026-07-08T08:48:22.486Z",
+            "dayKey": "2026-07-08"
+          },
           {
             "questionId": "47bfc15d19da",
             "bankId": "mto-loru-202103",
@@ -4615,8 +4636,16 @@
               "7726962f35ce"
             ],
             "index": 0,
-            "results": {},
-            "updatedAt": "2026-07-08T08:35:02.246Z"
+            "results": {
+              "b0a52001c0cd": {
+                "correct": false,
+                "answer": "BC",
+                "message": "回答错误",
+                "feedback": "",
+                "updatedAt": "2026-07-08T08:48:22.950Z"
+              }
+            },
+            "updatedAt": "2026-07-08T08:48:23.107Z"
           },
           "mto-loru-202103:random:judge": {
             "currentQuestionId": "fc705998ed28",
