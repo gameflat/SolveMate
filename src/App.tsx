@@ -34,7 +34,7 @@ import type { ReactNode } from "react";
 type QuestionType = "single" | "multiple" | "judge" | "fill" | "short" | "unknown";
 type PracticeMode = "random" | "sequential" | "favorites" | "mistakes";
 type QuickBrowseFilter = "all" | "unanswered" | "answered";
-type View = "practice" | "bank" | "manage" | "stats" | "mistakes" | "favorites" | "ai";
+type View = "practice" | "bank" | "manage" | "stats" | "mistakes" | "favorites" | "ai" | "feed";
 
 type Question = {
   id: string;
@@ -154,6 +154,7 @@ const viewLabels: Record<View, string> = {
   mistakes: "错题",
   favorites: "收藏",
   ai: "AI",
+  feed: "投食",
 };
 
 export function App() {
@@ -689,7 +690,9 @@ export function App() {
             ? [`${visibleMistakes.length} 道错题`, `${userState.stats.attempts} 次作答`]
             : activeView === "favorites"
               ? [`${favoriteQuestions.length} 道收藏`, `${questions.length} 题`]
-              : [`缓存 ${health?.explanationCacheCount || 0}/${health?.questionCount || questions.length}`, health?.ai.configured ? "AI 已配置" : "AI 未配置"];
+              : activeView === "feed"
+                ? ["温馨彩蛋", "感谢投食"]
+                : [`缓存 ${health?.explanationCacheCount || 0}/${health?.questionCount || questions.length}`, health?.ai.configured ? "AI 已配置" : "AI 未配置"];
 
   return (
     <main className="app-shell">
@@ -745,6 +748,9 @@ export function App() {
             </button>
             <button className={activeView === "ai" ? "active" : ""} onClick={() => openView("ai")}>
               <Sparkles size={18} /> AI
+            </button>
+            <button className={activeView === "feed" ? "active easter-nav" : "easter-nav"} onClick={() => openView("feed")}>
+              <Star size={18} /> 点我
             </button>
           </nav>
         </div>
@@ -1001,6 +1007,8 @@ export function App() {
         )}
 
         {activeView === "ai" && <AiStatus health={health} />}
+
+        {activeView === "feed" && <FeedPage />}
       </section>
       {quickBrowserOpen && activeView === "practice" && (
         <QuickQuestionBrowser
@@ -1027,6 +1035,102 @@ export function App() {
         />
       )}
     </main>
+  );
+}
+
+function FeedPage() {
+  const [paymentOpen, setPaymentOpen] = useState(false);
+  const [qrAvailable, setQrAvailable] = useState(true);
+  const snowflakes = Array.from({ length: 34 }, (_, index) => ({
+    id: index,
+    left: `${(index * 29) % 100}%`,
+    delay: `${-(index % 11) * 0.7}s`,
+    duration: `${7 + (index % 6) * 0.8}s`,
+    size: `${7 + (index % 5) * 2}px`,
+  }));
+
+  function openPayment() {
+    setQrAvailable(true);
+    setPaymentOpen(true);
+  }
+
+  return (
+    <section className={paymentOpen ? "feed-page feeding" : "feed-page"}>
+      {paymentOpen && (
+        <div className="snow-stage" aria-hidden="true">
+          {snowflakes.map((flake) => (
+            <span
+              key={flake.id}
+              className="snowflake"
+              style={{ left: flake.left, animationDelay: flake.delay, animationDuration: flake.duration, width: flake.size, height: flake.size }}
+            />
+          ))}
+        </div>
+      )}
+
+      <div className="warm-glow one" aria-hidden="true" />
+      <div className="warm-glow two" aria-hidden="true" />
+
+      <div className="feed-center">
+        <div className="pleading-stickman" aria-label="祈求投食的可爱火柴人">
+          <span className="plead-shadow" />
+          <span className="plead-sparkle one" />
+          <span className="plead-sparkle two" />
+          <span className="plead-head">
+            <i className="plead-hair one" />
+            <i className="plead-hair two" />
+            <i className="plead-eye left" />
+            <i className="plead-eye right" />
+            <i className="plead-cheek left" />
+            <i className="plead-cheek right" />
+            <i className="plead-mouth" />
+          </span>
+          <span className="plead-body" />
+          <span className="plead-arm left" />
+          <span className="plead-arm right" />
+          <span className="plead-leg left" />
+          <span className="plead-leg right" />
+          <span className="plead-heart one" />
+          <span className="plead-heart two" />
+        </div>
+
+        <div className="feed-copy">
+          <span>来自zhan的秘密入口</span>
+          <h2>投食一下，继续认真刷题</h2>
+          <p>一点点能量，会变成更多好看的题库和更稳定的 AI 解析。</p>
+        </div>
+
+        <button className="feed-button" onClick={openPayment}>
+          <Star size={19} fill="currentColor" />
+          喂食
+        </button>
+      </div>
+
+      {paymentOpen && (
+        <div className="payment-backdrop" role="presentation" onClick={() => setPaymentOpen(false)}>
+          <section className="payment-card" role="dialog" aria-modal="true" aria-labelledby="payment-title" onClick={(event) => event.stopPropagation()}>
+            <button className="payment-close" onClick={() => setPaymentOpen(false)} title="关闭">
+              <X size={18} />
+            </button>
+            <span className="payment-kicker">谢谢投食</span>
+            <h3 id="payment-title">扫码投喂 SolveMate</h3>
+            <div className="payment-qr-frame">
+              {qrAvailable ? (
+                <img src="/payment-qr.jpg" alt="收款码二维码" onError={() => setQrAvailable(false)} />
+              ) : (
+                <div className="payment-qr-placeholder" aria-label="收款码二维码待上传">
+                  <span />
+                  <span />
+                  <span />
+                  <i />
+                </div>
+              )}
+            </div>
+            <p>感谢支持，每一口都算数。</p>
+          </section>
+        </div>
+      )}
+    </section>
   );
 }
 
