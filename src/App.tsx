@@ -61,7 +61,8 @@ type BankMeta = {
 
 type PeriodStat = { attempts: number; correct: number; totalSeconds: number };
 type QuestionStat = PeriodStat & { lastAt?: string; lastAnswer?: string };
-type PracticeSession = { currentQuestionId: string; order: string[]; index: number; updatedAt?: string };
+type SessionResult = { correct: boolean; answer: string; message: string; score?: number; feedback?: string; updatedAt?: string };
+type PracticeSession = { currentQuestionId: string; order: string[]; index: number; results?: Record<string, SessionResult>; updatedAt?: string };
 
 type UserState = {
   username: string;
@@ -215,9 +216,10 @@ export function App() {
   }, [questions, typeFilter, practiceMode, userState.mistakes, userState.favorites]);
 
   const practiceKey = getProgressKey(activeBankId, practiceMode, typeFilter);
+  const activeSession = userState.progress.sessions?.[practiceKey];
   const activeOrder = useMemo(
-    () => getPracticeOrder(filtered, userState.progress.sessions?.[practiceKey], practiceMode),
-    [filtered, userState.progress.sessions, practiceKey, practiceMode],
+    () => getPracticeOrder(filtered, activeSession, practiceMode),
+    [filtered, activeSession, practiceMode],
   );
 
   useEffect(() => {
@@ -231,14 +233,14 @@ export function App() {
         questionId: currentId,
         mode: practiceMode,
         typeFilter,
-        session: { key: practiceKey, currentQuestionId: currentId, order, index },
+        session: { key: practiceKey, currentQuestionId: currentId, order, index, results: activeSession?.results || {} },
       }),
     }).then(setUserState);
   }, [activeBankId, currentId, practiceMode, typeFilter, practiceKey]);
 
   useEffect(() => {
     if (!booted.current || !filtered.length) return;
-    const savedSession = userState.progress.sessions?.[practiceKey];
+    const savedSession = activeSession;
     if (savedSession?.currentQuestionId && filtered.some((question) => question.id === savedSession.currentQuestionId)) {
       if (currentId !== savedSession.currentQuestionId) setCurrentId(savedSession.currentQuestionId);
       return;
@@ -246,7 +248,7 @@ export function App() {
     if (filtered.some((question) => question.id === currentId)) return;
     const session = createPracticeSession(filtered, practiceMode, savedSession);
     if (session.currentQuestionId) setCurrentId(session.currentQuestionId);
-  }, [filtered, practiceMode, practiceKey, userState.progress.sessions]);
+  }, [filtered, practiceMode, practiceKey, activeSession]);
 
   const current = useMemo(
     () => filtered.find((question) => question.id === currentId) || filtered[0] || questions[0],
@@ -271,37 +273,31 @@ export function App() {
   );
   const practiceProgress = useMemo(() => {
     const total = filtered.length;
-    const completed = filtered.filter((question) => (userState.stats.byQuestion[question.id]?.attempts || 0) > 0).length;
-    const correct = filtered.filter((question) => (userState.stats.byQuestion[question.id]?.correct || 0) > 0).length;
+    const sessionResults = activeSession?.results || {};
+    const completed = filtered.filter((question) => sessionResults[question.id]).length;
+    const correct = filtered.filter((question) => sessionResults[question.id]?.correct).length;
     return {
       total,
       completed,
       correct,
       percent: total ? Math.round((completed / total) * 100) : 0,
     };
-  }, [filtered, userState.stats.byQuestion]);
+  }, [filtered, activeSession]);
 
   const accuracy = userState.stats.attempts ? Math.round((userState.stats.correct / userState.stats.attempts) * 100) : 0;
   const averageSeconds = userState.stats.attempts ? Math.round(userState.stats.totalSeconds / userState.stats.attempts) : 0;
   const isFavorite = current ? userState.favorites.includes(current.id) : false;
-  const currentStat = current ? userState.stats.byQuestion[current.id] : undefined;
-  const currentRecentAttempt = current ? userState.stats.recentAttempts.find((attempt) => attempt.questionId === current.id) : undefined;
+  const currentSessionResult = current ? activeSession?.results?.[current.id] : undefined;
   const rememberedResult = useMemo<ResultState | null>(() => {
-    if (!current || result || !currentStat?.attempts) return null;
-    const correct = currentRecentAttempt?.correct ?? currentStat.correct > 0;
-    const historyText =
-      currentStat.attempts > 1
-        ? `历史 ${currentStat.correct}/${currentStat.attempts} 次正确`
-        : currentStat.correct > 0
-          ? "历史已答对"
-          : "历史未答对";
-    const answerText = currentStat.lastAnswer ? `你的答案：${currentStat.lastAnswer}` : "";
+    if (!current || result || !currentSessionResult) return null;
+    const answerText = currentSessionResult.answer ? `你的答案：${currentSessionResult.answer}` : "";
     return {
-      correct,
-      message: currentRecentAttempt ? (correct ? "上次回答正确" : "上次回答错误") : historyText,
-      feedback: [answerText, historyText].filter(Boolean).join(" · "),
+      correct: currentSessionResult.correct,
+      message: currentSessionResult.message || (currentSessionResult.correct ? "本模式已答对" : "本模式已答错"),
+      score: currentSessionResult.score,
+      feedback: [answerText, currentSessionResult.feedback].filter(Boolean).join(" · "),
     };
-  }, [current, currentStat, currentRecentAttempt, result]);
+  }, [current, currentSessionResult, result]);
   const visibleResult = result || rememberedResult;
   const answeredFromHistory = Boolean(rememberedResult && !result);
   const checkinUnlocked = Boolean(userState.checkins.checkedToday || userState.checkins.unlocked);
@@ -510,8 +506,9 @@ export function App() {
       current.type === "multiple" || current.type === "single"
         ? normalizeChoice(userAnswer) === normalizeChoice(current.answer)
         : normalizeText(userAnswer) === normalizeText(current.answer);
-    setResult({ correct, message: correct ? "回答正确" : "回答错误" });
-    await recordAttempt(current, userAnswer, correct);
+    const nextResult = { correct, message: correct ? "回答正确" : "回答错误" };
+    await recordAttempt(current, userAnswer, nextResult);
+    setResult(nextResult);
     void loadExplanationForQuestion(current);
   }
 
@@ -524,8 +521,9 @@ export function App() {
         body: JSON.stringify({ answer: textAnswer }),
       });
       const correct = Number(payload.score) >= 60;
-      setResult({ correct, score: payload.score, feedback: payload.feedback, message: `AI 评分：${payload.score ?? 0} 分` });
-      await recordAttempt(current, textAnswer, correct);
+      const nextResult = { correct, score: payload.score, feedback: payload.feedback, message: `AI 评分：${payload.score ?? 0} 分` };
+      await recordAttempt(current, textAnswer, nextResult);
+      setResult(nextResult);
       setStatus("");
       void loadExplanationForQuestion(current);
     } catch (error) {
@@ -533,11 +531,40 @@ export function App() {
     }
   }
 
-  async function recordAttempt(question: Question, userAnswer: string, correct: boolean) {
+  async function recordAttempt(question: Question, userAnswer: string, attemptResult: ResultState) {
     const seconds = Math.max(1, Math.round((Date.now() - startedAt.current) / 1000));
-    const nextState = await authJson("/api/me/attempt", {
+    await authJson("/api/me/attempt", {
       method: "POST",
-      body: JSON.stringify({ questionId: question.id, answer: userAnswer, correct, seconds }),
+      body: JSON.stringify({ questionId: question.id, bankId: activeBankId, answer: userAnswer, correct: attemptResult.correct, seconds }),
+    });
+    const order = activeOrder.length ? activeOrder : filtered.map((item) => item.id);
+    const index = Math.max(0, order.indexOf(question.id));
+    const nextResults = {
+      ...(activeSession?.results || {}),
+      [question.id]: {
+        correct: attemptResult.correct,
+        answer: userAnswer,
+        message: attemptResult.message,
+        score: attemptResult.score,
+        feedback: attemptResult.feedback,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    const nextState = await authJson("/api/me/progress", {
+      method: "POST",
+      body: JSON.stringify({
+        bankId: activeBankId,
+        questionId: question.id,
+        mode: practiceMode,
+        typeFilter,
+        session: {
+          key: practiceKey,
+          currentQuestionId: question.id,
+          order,
+          index,
+          results: nextResults,
+        },
+      }),
     });
     setUserState(nextState);
   }
@@ -1925,6 +1952,7 @@ function createPracticeSession(pool: Question[], mode: PracticeMode, saved?: Pra
     currentQuestionId,
     order,
     index: Math.max(0, order.indexOf(currentQuestionId)),
+    results: reset ? {} : saved?.results || {},
   };
 }
 

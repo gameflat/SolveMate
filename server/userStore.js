@@ -147,6 +147,7 @@ export async function saveProgress(username, { bankId, questionId, mode, typeFil
       currentQuestionId: String(session.currentQuestionId || questionId || ""),
       order: Array.isArray(session.order) ? session.order.map(String) : [],
       index: Math.max(0, Number(session.index) || 0),
+      results: normalizeSessionResults(session.results),
       updatedAt: new Date().toISOString(),
     };
   }
@@ -278,13 +279,40 @@ function emptyProgress() {
 }
 
 function normalizeProgress(progress = {}) {
+  const sessions = {};
+  Object.entries(progress.sessions || {}).forEach(([key, session]) => {
+    sessions[key] = {
+      currentQuestionId: String(session?.currentQuestionId || ""),
+      order: Array.isArray(session?.order) ? session.order.map(String) : [],
+      index: Math.max(0, Number(session?.index) || 0),
+      results: normalizeSessionResults(session?.results),
+      updatedAt: session?.updatedAt || "",
+    };
+  });
   return {
     ...emptyProgress(),
     ...progress,
     mode: normalizeMode(progress.mode) || "random",
     currentByBank: progress.currentByBank || {},
-    sessions: progress.sessions || {},
+    sessions,
   };
+}
+
+function normalizeSessionResults(results = {}) {
+  if (!results || typeof results !== "object" || Array.isArray(results)) return {};
+  return Object.fromEntries(
+    Object.entries(results).map(([questionId, result]) => [
+      String(questionId),
+      {
+        correct: Boolean(result?.correct),
+        answer: String(result?.answer || "").slice(0, 3000),
+        message: String(result?.message || "").slice(0, 500),
+        score: result?.score === undefined ? undefined : Number(result.score) || 0,
+        feedback: String(result?.feedback || "").slice(0, 3000),
+        updatedAt: String(result?.updatedAt || ""),
+      },
+    ]),
+  );
 }
 
 function normalizeMode(mode) {
