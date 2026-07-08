@@ -49,5 +49,26 @@ export function publicBankMeta(bank) {
     source: bank.source,
     isLegacy: Boolean(bank.isLegacy),
     questionCount: bank.questions.length,
+    updatedAt: bank.updatedAt || "",
+    importedAt: bank.importedAt || "",
   };
+}
+
+export function readQuestionBankPayload() {
+  if (!fs.existsSync(BANKS_PATH)) {
+    return {
+      defaultBankId: "default",
+      banks: [],
+    };
+  }
+  return JSON.parse(fs.readFileSync(BANKS_PATH, "utf8"));
+}
+
+export function writeQuestionBankPayload(payload) {
+  fs.mkdirSync(path.dirname(BANKS_PATH), { recursive: true });
+  fs.writeFileSync(BANKS_PATH, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+}
+
+export function questionBanksPath() {
+  return BANKS_PATH;
 }

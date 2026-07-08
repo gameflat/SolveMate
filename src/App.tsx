@@ -8,7 +8,7 @@ import {
   ChevronRight,
   CheckCircle2,
   Clock3,
-  History,
+  FileUp,
   Library,
   ListChecks,
   ListFilter,
@@ -17,6 +17,8 @@ import {
   MessageSquareText,
   RefreshCcw,
   RotateCw,
+  Save,
+  Settings,
   Search,
   Sparkles,
   Star,
@@ -31,7 +33,7 @@ import type { ReactNode } from "react";
 
 type QuestionType = "single" | "multiple" | "judge" | "fill" | "short" | "unknown";
 type PracticeMode = "random" | "sequential" | "favorites" | "mistakes";
-type View = "practice" | "bank" | "stats" | "mistakes" | "favorites" | "ai";
+type View = "practice" | "bank" | "manage" | "stats" | "mistakes" | "favorites" | "ai";
 
 type Question = {
   id: string;
@@ -53,6 +55,8 @@ type BankMeta = {
   source: string;
   isLegacy: boolean;
   questionCount: number;
+  updatedAt?: string;
+  importedAt?: string;
 };
 
 type PeriodStat = { attempts: number; correct: number; totalSeconds: number };
@@ -98,6 +102,20 @@ type Health = {
 };
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
+type BankImportRequest = {
+  file: File;
+  targetMode: "new" | "existing";
+  targetBankId: string;
+  bankName: string;
+  bankLabel: string;
+  aiAssist: boolean;
+};
+type BankImportResult = {
+  importedCount: number;
+  warnings: { reason?: string; row?: number; block?: number; prompt?: string; text?: string }[];
+  ai: { used: boolean; configured: boolean; reason: string; count: number };
+  bank: BankMeta;
+};
 
 const EMPTY_STATE: UserState = {
   username: "",
@@ -129,6 +147,7 @@ const bankTypeOptions = ["all", "single", "multiple", "judge", "fill", "short", 
 const viewLabels: Record<View, string> = {
   practice: "练习",
   bank: "题库",
+  manage: "管理",
   stats: "统计",
   mistakes: "错题",
   favorites: "收藏",
@@ -351,10 +370,45 @@ export function App() {
     setAuthenticated(false);
   }
 
-  async function switchBank(bankId: string) {
-    const savedQuestion = userState.progress.currentByBank[bankId] || "";
-    await loadBank(bankId, savedQuestion);
-    setActiveView("practice");
+  async function updateBankMeta(bankId: string, name: string, label: string) {
+    const payload = await authJson(`/api/banks/${encodeURIComponent(bankId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name, label }),
+    });
+    setBanks((old) => old.map((bank) => (bank.id === payload.bank.id ? payload.bank : bank)));
+    setStatus("题库信息已保存。");
+  }
+
+  async function updateDefaultBank(bankId: string) {
+    const payload = await authJson("/api/banks/default", {
+      method: "POST",
+      body: JSON.stringify({ bankId }),
+    });
+    setBanks(payload.banks);
+    await loadBank(bankId);
+    setStatus("默认题库已更新。");
+  }
+
+  async function importQuestionBank(request: BankImportRequest) {
+    const contentBase64 = await fileToBase64(request.file);
+    const payload = await authJson("/api/banks/import", {
+      method: "POST",
+      body: JSON.stringify({
+        fileName: request.file.name,
+        contentBase64,
+        targetMode: request.targetMode,
+        targetBankId: request.targetBankId,
+        bankName: request.bankName,
+        bankLabel: request.bankLabel,
+        aiAssist: request.aiAssist,
+      }),
+    });
+    const bankId = payload.bank.id;
+    setStatus(`已导入 ${payload.importedCount} 道题。`);
+    await loadBank(bankId);
+    const banksPayload = await authJson("/api/banks");
+    setBanks(banksPayload.banks);
+    return payload as BankImportResult;
   }
 
   function chooseQuestion(id: string) {
@@ -582,6 +636,8 @@ export function App() {
         ]
       : activeView === "bank"
         ? [`显示 ${bankQuestions.length}/${questions.length} 题`, bankTypeFilter === "all" ? "全部题型" : typeLabels[bankTypeFilter]]
+        : activeView === "manage"
+          ? [`${banks.length} 个题库`, `当前 ${questions.length} 题`]
         : activeView === "stats"
           ? [`正确率 ${accuracy}%`, `连续 ${userState.checkins.streak} 天`]
           : activeView === "mistakes"
@@ -607,19 +663,17 @@ export function App() {
 
         <div className={mobileNavOpen ? "mobile-nav-panel open" : "mobile-nav-panel"}>
           <div className="bank-switcher">
-            {banks.map((bank) => (
-              <button
-                key={bank.id}
-                className={bank.id === activeBankId ? "bank-tab active" : "bank-tab"}
-                onClick={() => {
-                  switchBank(bank.id);
-                  setMobileNavOpen(false);
-                }}
-              >
-                {bank.isLegacy ? <History size={16} /> : <Library size={16} />}
-                <span>{bank.isLegacy ? "过往题库" : "当前题库"}</span>
-              </button>
-            ))}
+            <button
+              className="bank-tab active"
+              onClick={() => {
+                openView("bank");
+                setMobileNavOpen(false);
+              }}
+              title={activeBank?.name || "当前题库"}
+            >
+              <Library size={16} />
+              <span>当前题库</span>
+            </button>
           </div>
 
           <nav className="nav">
@@ -628,6 +682,9 @@ export function App() {
             </button>
             <button className={activeView === "bank" ? "active" : ""} onClick={() => openView("bank")}>
               <Library size={18} /> 题库
+            </button>
+            <button className={activeView === "manage" ? "active" : ""} onClick={() => openView("manage")}>
+              <Settings size={18} /> 管理
             </button>
             <button className={activeView === "stats" ? "active" : ""} onClick={() => openView("stats")}>
               <BarChart3 size={18} /> 统计
@@ -832,6 +889,21 @@ export function App() {
             onSearch={setBankSearch}
             onTypeFilter={setBankTypeFilter}
             onChoose={chooseQuestion}
+          />
+        )}
+
+        {activeView === "manage" && (
+          <BankManager
+            banks={banks}
+            activeBankId={activeBankId}
+            aiConfigured={Boolean(health?.ai.configured)}
+            onSaveMeta={updateBankMeta}
+            onSetDefault={updateDefaultBank}
+            onImport={importQuestionBank}
+            onOpenBank={(bankId) => {
+              void loadBank(bankId);
+              setActiveView("bank");
+            }}
           />
         )}
 
@@ -1174,6 +1246,194 @@ function ActivityCalendar({
         <i className="level-4" />
         <span>多</span>
       </div>
+    </section>
+  );
+}
+
+function BankManager({
+  banks,
+  activeBankId,
+  aiConfigured,
+  onSaveMeta,
+  onSetDefault,
+  onImport,
+  onOpenBank,
+}: {
+  banks: BankMeta[];
+  activeBankId: string;
+  aiConfigured: boolean;
+  onSaveMeta: (bankId: string, name: string, label: string) => Promise<void>;
+  onSetDefault: (bankId: string) => Promise<void>;
+  onImport: (request: BankImportRequest) => Promise<BankImportResult>;
+  onOpenBank: (bankId: string) => void;
+}) {
+  const [drafts, setDrafts] = useState<Record<string, { name: string; label: string }>>({});
+  const [managerView, setManagerView] = useState<"import" | "manage">("import");
+  const [targetMode, setTargetMode] = useState<"new" | "existing">("new");
+  const [targetBankId, setTargetBankId] = useState(activeBankId);
+  const [bankName, setBankName] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<BankImportResult | null>(null);
+
+  useEffect(() => {
+    setDrafts((old) => {
+      const next = { ...old };
+      banks.forEach((bank) => {
+        if (!next[bank.id]) next[bank.id] = { name: bank.name, label: bank.label };
+      });
+      return next;
+    });
+    if (!targetBankId && banks[0]) setTargetBankId(banks[0].id);
+  }, [banks, targetBankId]);
+
+  async function submitImport(event: FormEvent) {
+    event.preventDefault();
+    if (!file) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const payload = await onImport({
+        file,
+        targetMode,
+        targetBankId,
+        bankName,
+        bankLabel: "导入题库",
+        aiAssist: aiConfigured,
+      });
+      setResult(payload);
+      setFile(null);
+      setBankName("");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="dashboard bank-manager">
+      <div className="manager-mode-switch" aria-label="题库管理功能">
+        <button className={managerView === "import" ? "active" : ""} onClick={() => setManagerView("import")}>
+          <FileUp size={18} />
+          导入题库
+        </button>
+        <button className={managerView === "manage" ? "active" : ""} onClick={() => setManagerView("manage")}>
+          <Library size={18} />
+          题库管理
+        </button>
+      </div>
+
+      {managerView === "import" && (
+      <section className="table-panel manage-panel">
+        <div className="table-head">
+          <strong>导入题库</strong>
+          <span className="muted">AI 清洗{aiConfigured ? "已开启" : "未配置"} · 支持 xlsx、xlsm、csv、docx、txt、md</span>
+        </div>
+        <form className="import-form" onSubmit={submitImport}>
+          <label
+            className={file ? "file-upload-control ready" : "file-upload-control"}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              setFile(event.dataTransfer.files?.[0] || null);
+            }}
+          >
+            <input
+              type="file"
+              accept=".xlsx,.xlsm,.csv,.docx,.txt,.md"
+              onChange={(event) => setFile(event.target.files?.[0] || null)}
+            />
+            <span className="file-upload-icon">
+              <FileUp size={24} />
+            </span>
+            <strong>{file ? file.name : "选择题库文件"}</strong>
+            <em>{file ? `${Math.max(1, Math.round(file.size / 1024))} KB` : "支持拖入文件或点击选择"}</em>
+          </label>
+          <label>
+            <span>导入方式</span>
+            <select value={targetMode} onChange={(event) => setTargetMode(event.target.value === "existing" ? "existing" : "new")}>
+              <option value="new">导入到新题库</option>
+              <option value="existing">导入到现有题库</option>
+            </select>
+          </label>
+          {targetMode === "existing" ? (
+            <label>
+              <span>目标题库</span>
+              <select value={targetBankId} onChange={(event) => setTargetBankId(event.target.value)}>
+                {banks.map((bank) => (
+                  <option key={bank.id} value={bank.id}>
+                    {bank.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <label>
+              <span>新题库名称</span>
+              <input value={bankName} placeholder="例如：7月考试题库" onChange={(event) => setBankName(event.target.value)} />
+            </label>
+          )}
+          <button className="primary import-submit" type="submit" disabled={busy || !file || (targetMode === "new" && !bankName.trim())}>
+            <FileUp size={18} />
+            {busy ? "导入中..." : "开始导入"}
+          </button>
+        </form>
+        {result && (
+          <div className="import-result">
+            <strong>{result.bank.name} · 已导入 {result.importedCount} 道</strong>
+            <span>{result.ai.used ? `AI 已辅助处理 ${result.ai.count} 道` : `AI：${result.ai.reason || "规则解析完成"}`}</span>
+            {result.warnings.length > 0 && <span>解析提示 {result.warnings.length} 条，建议抽查题目。</span>}
+          </div>
+        )}
+      </section>
+      )}
+
+      {managerView === "manage" && (
+      <section className="table-panel manage-panel">
+        <div className="table-head">
+          <strong>题库管理</strong>
+          <span className="muted">在这里选择当前题库、修改题库名称</span>
+        </div>
+        <div className="manage-bank-list">
+          {banks.map((bank) => {
+            const draft = drafts[bank.id] || { name: bank.name, label: bank.label };
+            return (
+              <div key={bank.id} className={bank.id === activeBankId ? "manage-bank-row active" : "manage-bank-row"}>
+                <div className="manage-bank-main">
+                  <strong>{bank.name}</strong>
+                  <span>{bank.questionCount} 题 · {bank.id === activeBankId ? "当前题库" : bank.label || "未设置标签"}</span>
+                </div>
+                <label>
+                  <span>名称</span>
+                  <input
+                    value={draft.name}
+                    onChange={(event) => setDrafts((old) => ({ ...old, [bank.id]: { ...draft, name: event.target.value } }))}
+                  />
+                </label>
+                <label>
+                  <span>标签</span>
+                  <input
+                    value={draft.label}
+                    onChange={(event) => setDrafts((old) => ({ ...old, [bank.id]: { ...draft, label: event.target.value } }))}
+                  />
+                </label>
+                <div className="manage-bank-actions">
+                  <button className="icon-text" onClick={() => void onSaveMeta(bank.id, draft.name, draft.label)}>
+                    <Save size={17} />
+                    保存
+                  </button>
+                  <button className={bank.id === activeBankId ? "chip active" : "chip"} onClick={() => void onSetDefault(bank.id)}>
+                    {bank.id === activeBankId ? "当前" : "设为当前"}
+                  </button>
+                  <button className="action" onClick={() => onOpenBank(bank.id)}>
+                    浏览
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+      )}
     </section>
   );
 }
@@ -1648,4 +1908,13 @@ function addMonths(monthKey: string, delta: number) {
   const [year, month] = monthKey.split("-").map(Number);
   const date = new Date(Date.UTC(year, month - 1 + delta, 1));
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function fileToBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || "").split(",").pop() || "");
+    reader.onerror = () => reject(reader.error || new Error("读取文件失败"));
+    reader.readAsDataURL(file);
+  });
 }

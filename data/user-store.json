@@ -4,7 +4,7 @@
       "profile": {
         "username": "zhan",
         "createdAt": "2026-07-08T03:09:49.600Z",
-        "lastLoginAt": "2026-07-08T04:16:48.467Z"
+        "lastLoginAt": "2026-07-08T05:01:12.939Z"
       },
       "favorites": {
         "b65cbd3c6c76": "2026-07-08T03:41:56.831Z",
@@ -201,16 +201,16 @@
       },
       "progress": {
         "lastBankId": "mto-loru-202103",
-        "lastQuestionId": "12c3722b05f9",
+        "lastQuestionId": "fba916965563",
         "currentByBank": {
-          "mto-loru-202103": "12c3722b05f9",
+          "mto-loru-202103": "fba916965563",
           "legacy-competition-20240522": "dd82d1caa64d"
         },
         "mode": "random",
         "typeFilter": "all",
         "sessions": {
           "mto-loru-202103:random:all": {
-            "currentQuestionId": "12c3722b05f9",
+            "currentQuestionId": "fba916965563",
             "order": [
               "c057071b563b",
               "ea96c3d0fd0d",
@@ -1343,8 +1343,8 @@
               "6eab0fe3d9d1",
               "41150f49a5f1"
             ],
-            "index": 395,
-            "updatedAt": "2026-07-08T04:37:54.213Z"
+            "index": 127,
+            "updatedAt": "2026-07-08T05:16:32.737Z"
           },
           "legacy-competition-20240522:random:all": {
             "currentQuestionId": "dd82d1caa64d",
@@ -1992,7 +1992,7 @@
               "d2c1ccc59a5a"
             ],
             "index": 440,
-            "updatedAt": "2026-07-08T03:24:34.460Z"
+            "updatedAt": "2026-07-08T05:15:59.227Z"
           },
           "mto-loru-202103:mistakes:all": {
             "currentQuestionId": "b65cbd3c6c76",
@@ -3518,7 +3518,7 @@
       "profile": {
         "username": "orange",
         "createdAt": "2026-07-08T03:27:27.748Z",
-        "lastLoginAt": "2026-07-08T03:37:55.132Z"
+        "lastLoginAt": "2026-07-08T04:57:02.113Z"
       },
       "favorites": {},
       "mistakes": {},
