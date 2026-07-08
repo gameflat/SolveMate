@@ -539,6 +539,22 @@ export function App() {
   if (!authenticated) return <LoginPage onLogin={bootstrap} />;
   if (!current) return <div className="loading">正在加载题库...</div>;
   const pageTitle = activeView === "practice" ? `${modeLabels[practiceMode]}练习` : viewLabels[activeView];
+  const topbarStats =
+    activeView === "practice"
+      ? [
+          activeBank?.isLegacy ? "过往题库" : "当前题库",
+          `${currentIndex >= 0 ? currentIndex + 1 : 1}/${filtered.length}`,
+          typeFilter === "all" ? "全部题型" : typeLabels[typeFilter],
+        ]
+      : activeView === "bank"
+        ? [`显示 ${bankQuestions.length}/${questions.length} 题`, typeFilter === "all" ? "全部题型" : typeLabels[typeFilter]]
+        : activeView === "stats"
+          ? [`正确率 ${accuracy}%`, `连续 ${userState.checkins.streak} 天`]
+          : activeView === "mistakes"
+            ? [`${visibleMistakes.length} 道错题`, `${userState.stats.attempts} 次作答`]
+            : activeView === "favorites"
+              ? [`${favoriteQuestions.length} 道收藏`, `${questions.length} 题`]
+              : [`缓存 ${health?.explanationCacheCount || 0}/${health?.questionCount || questions.length}`, health?.ai.configured ? "AI 已配置" : "AI 未配置"];
 
   return (
     <main className="app-shell">
@@ -605,6 +621,11 @@ export function App() {
 
       <section className="workspace">
         <header className={activeView === "practice" ? "topbar practice-topbar" : "topbar"}>
+          <div className="top-context" aria-label="当前状态">
+            {topbarStats.map((item) => (
+              <span key={item}>{item}</span>
+            ))}
+          </div>
           <div className="title-block">
             <div className="eyebrow">{activeBank?.name}</div>
             <h1 className="page-title">{pageTitle}</h1>
@@ -657,8 +678,13 @@ export function App() {
 
         {activeView === "practice" && filtered.length === 0 && (
           <section className="table-panel empty-practice">
-            <strong>{emptyPoolMessage(practiceMode)}</strong>
-            <span>可以切换题型、切换模式，或收藏题目后再进入收藏刷题。</span>
+            <EmptyState
+              icon={<Target size={22} />}
+              title={emptyPoolMessage(practiceMode)}
+              description="可以切换题型、切换模式，或收藏题目后再进入收藏刷题。"
+              actionLabel="查看题库"
+              onAction={() => setActiveView("bank")}
+            />
           </section>
         )}
 
@@ -753,7 +779,15 @@ export function App() {
         )}
 
         {activeView === "bank" && (
-          <QuestionBank questions={bankQuestions} total={questions.length} search={bankSearch} currentId={current.id} onSearch={setBankSearch} onChoose={chooseQuestion} />
+          <QuestionBank
+            questions={bankQuestions}
+            total={questions.length}
+            search={bankSearch}
+            currentId={current.id}
+            state={userState}
+            onSearch={setBankSearch}
+            onChoose={chooseQuestion}
+          />
         )}
 
         {activeView === "stats" && (
@@ -776,10 +810,23 @@ export function App() {
             empty="当前题库还没有错题记录。"
             onChoose={chooseQuestion}
             renderMeta={(question) => `错误 ${userState.mistakes[question.id]?.count || 0} 次`}
+            emptyIcon={<XCircle size={22} />}
+            actionLabel="继续练习"
+            onEmptyAction={() => setActiveView("practice")}
           />
         )}
 
-        {activeView === "favorites" && <QuestionList title="收藏题目" questions={favoriteQuestions} empty="当前题库还没有收藏题目。" onChoose={chooseQuestion} />}
+        {activeView === "favorites" && (
+          <QuestionList
+            title="收藏题目"
+            questions={favoriteQuestions}
+            empty="当前题库还没有收藏题目。"
+            onChoose={chooseQuestion}
+            emptyIcon={<Bookmark size={22} />}
+            actionLabel="浏览题库"
+            onEmptyAction={() => setActiveView("bank")}
+          />
+        )}
 
         {activeView === "ai" && <AiStatus health={health} onRefresh={refreshHealth} onPrewarm={startPrewarm} />}
       </section>
@@ -842,7 +889,7 @@ function AiPanel({
         <Sparkles size={18} />
         <strong>AI 解析</strong>
       </div>
-      <div className="explanation">{explanationLoading ? "解析加载中..." : explanation || "暂无解析内容。"}</div>
+      <div className={explanationLoading ? "explanation loading-lines" : "explanation"}>{explanationLoading ? "正在整理解析..." : explanation || "暂无解析内容。"}</div>
 
       <div className="panel-title qa-title">
         <MessageSquareText size={18} />
@@ -1085,6 +1132,7 @@ function QuestionBank({
   total,
   search,
   currentId,
+  state,
   onSearch,
   onChoose,
 }: {
@@ -1092,6 +1140,7 @@ function QuestionBank({
   total: number;
   search: string;
   currentId: string;
+  state: UserState;
   onSearch: (value: string) => void;
   onChoose: (id: string) => void;
 }) {
@@ -1109,19 +1158,31 @@ function QuestionBank({
       </div>
 
       {questions.length === 0 ? (
-        <p className="empty">没有匹配的题目。</p>
+        <EmptyState icon={<Search size={22} />} title="没有匹配的题目" description="换一个关键词，或清空搜索后继续浏览题库。" />
       ) : (
         <div className="bank-list">
-          {questions.map((question) => (
-            <button key={question.id} className={question.id === currentId ? "bank-row active" : "bank-row"} onClick={() => onChoose(question.id)}>
-              <span className="bank-row-index">#{question.sourceIndex}</span>
-              <span className="bank-row-main">
-                <strong>{question.prompt}</strong>
-                <em>{question.rawType}{question.type === "fill" ? ` · ${getBlankCount(question)} 空` : ""}</em>
-              </span>
-              <span className="bank-row-answer">{question.answer}</span>
-            </button>
-          ))}
+          {questions.map((question) => {
+            const answered = Boolean(state.stats.byQuestion[question.id]?.attempts);
+            const favorite = state.favorites.includes(question.id);
+            const mistake = Boolean(state.mistakes[question.id]);
+            return (
+              <button key={question.id} className={question.id === currentId ? "bank-row active" : "bank-row"} onClick={() => onChoose(question.id)}>
+                <span className="bank-row-index">#{question.sourceIndex}</span>
+                <span className="bank-row-main">
+                  <strong>{question.prompt}</strong>
+                  <em>{question.rawType}{question.type === "fill" ? ` · ${getBlankCount(question)} 空` : ""}</em>
+                </span>
+                <span className="bank-row-tags">
+                  <span className={`type-badge ${question.type}`}>{typeLabels[question.type]}</span>
+                  {question.id === currentId && <span className="state-badge current">当前</span>}
+                  {answered && <span className="state-badge answered">已答</span>}
+                  {mistake && <span className="state-badge mistake">错题</span>}
+                  {favorite && <span className="state-badge favorite">收藏</span>}
+                </span>
+                <span className="bank-row-answer">{question.answer}</span>
+              </button>
+            );
+          })}
         </div>
       )}
     </section>
@@ -1159,12 +1220,18 @@ function QuestionList({
   empty,
   onChoose,
   renderMeta,
+  emptyIcon,
+  actionLabel,
+  onEmptyAction,
 }: {
   title: string;
   questions: Question[];
   empty: string;
   onChoose: (id: string) => void;
   renderMeta?: (question: Question) => string;
+  emptyIcon?: ReactNode;
+  actionLabel?: string;
+  onEmptyAction?: () => void;
 }) {
   return (
     <section className="table-panel">
@@ -1173,7 +1240,7 @@ function QuestionList({
         <span>{questions.length} 道</span>
       </div>
       {questions.length === 0 ? (
-        <p className="empty">{empty}</p>
+        <EmptyState icon={emptyIcon || <Library size={22} />} title={empty} description="这里会随着你的练习记录自动更新。" actionLabel={actionLabel} onAction={onEmptyAction} />
       ) : (
         questions.map((question) => (
           <button key={question.id} className="row-item" onClick={() => onChoose(question.id)}>
@@ -1186,11 +1253,45 @@ function QuestionList({
   );
 }
 
+function EmptyState({
+  icon,
+  title,
+  description,
+  actionLabel,
+  onAction,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div className="empty-state">
+      <span className="empty-icon">{icon}</span>
+      <strong>{title}</strong>
+      <p>{description}</p>
+      {actionLabel && onAction && (
+        <button className="icon-text" onClick={onAction}>
+          {actionLabel}
+          <ChevronRight size={16} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 function Metric({ label, value, icon }: { label: string; value: string; icon: ReactNode }) {
+  const percent = value.endsWith("%") ? Math.max(0, Math.min(100, Number.parseInt(value, 10) || 0)) : null;
   return (
     <div className="metric">
       <span>{icon}{label}</span>
       <strong>{value}</strong>
+      {percent !== null && (
+        <div className="metric-bar" aria-hidden="true">
+          <i style={{ width: `${percent}%` }} />
+        </div>
+      )}
     </div>
   );
 }

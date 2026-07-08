@@ -4,19 +4,100 @@
       "profile": {
         "username": "zhan",
         "createdAt": "2026-07-08T03:09:49.600Z",
-        "lastLoginAt": "2026-07-08T03:24:26.279Z"
+        "lastLoginAt": "2026-07-08T03:41:52.189Z"
       },
-      "favorites": {},
-      "mistakes": {},
+      "favorites": {
+        "b65cbd3c6c76": "2026-07-08T03:41:56.831Z"
+      },
+      "mistakes": {
+        "b65cbd3c6c76": {
+          "count": 1,
+          "lastAt": "2026-07-08T03:41:58.984Z",
+          "lastAnswer": "正确"
+        },
+        "0df629e397ce": {
+          "count": 1,
+          "lastAt": "2026-07-08T03:42:20.816Z",
+          "lastAnswer": "错误"
+        }
+      },
       "stats": {
-        "attempts": 0,
-        "correct": 0,
-        "totalSeconds": 0,
-        "byQuestion": {},
-        "daily": {},
-        "weekly": {},
-        "monthly": {},
-        "recentAttempts": []
+        "attempts": 3,
+        "correct": 1,
+        "totalSeconds": 11,
+        "byQuestion": {
+          "b65cbd3c6c76": {
+            "attempts": 1,
+            "correct": 0,
+            "totalSeconds": 7,
+            "lastAt": "2026-07-08T03:41:58.984Z",
+            "lastAnswer": "正确"
+          },
+          "0916b4fbf8ef": {
+            "attempts": 1,
+            "correct": 1,
+            "totalSeconds": 3,
+            "lastAt": "2026-07-08T03:42:03.634Z",
+            "lastAnswer": "ABC"
+          },
+          "0df629e397ce": {
+            "attempts": 1,
+            "correct": 0,
+            "totalSeconds": 1,
+            "lastAt": "2026-07-08T03:42:20.816Z",
+            "lastAnswer": "错误"
+          }
+        },
+        "daily": {
+          "2026-07-08": {
+            "attempts": 3,
+            "correct": 1,
+            "totalSeconds": 11
+          }
+        },
+        "weekly": {
+          "2026-07-06": {
+            "attempts": 3,
+            "correct": 1,
+            "totalSeconds": 11
+          }
+        },
+        "monthly": {
+          "2026-07": {
+            "attempts": 3,
+            "correct": 1,
+            "totalSeconds": 11
+          }
+        },
+        "recentAttempts": [
+          {
+            "questionId": "0df629e397ce",
+            "bankId": "mto-loru-202103",
+            "correct": false,
+            "seconds": 1,
+            "answer": "错误",
+            "at": "2026-07-08T03:42:20.816Z",
+            "dayKey": "2026-07-08"
+          },
+          {
+            "questionId": "0916b4fbf8ef",
+            "bankId": "mto-loru-202103",
+            "correct": true,
+            "seconds": 3,
+            "answer": "ABC",
+            "at": "2026-07-08T03:42:03.634Z",
+            "dayKey": "2026-07-08"
+          },
+          {
+            "questionId": "b65cbd3c6c76",
+            "bankId": "mto-loru-202103",
+            "correct": false,
+            "seconds": 7,
+            "answer": "正确",
+            "at": "2026-07-08T03:41:58.984Z",
+            "dayKey": "2026-07-08"
+          }
+        ]
       },
       "progress": {
         "lastBankId": "mto-loru-202103",
@@ -1163,7 +1244,7 @@
               "41150f49a5f1"
             ],
             "index": 131,
-            "updatedAt": "2026-07-08T03:31:54.164Z"
+            "updatedAt": "2026-07-08T03:42:48.751Z"
           },
           "legacy-competition-20240522:random:all": {
             "currentQuestionId": "dd82d1caa64d",
@@ -1833,7 +1914,7 @@
       "profile": {
         "username": "orange",
         "createdAt": "2026-07-08T03:27:27.748Z",
-        "lastLoginAt": "2026-07-08T03:27:27.748Z"
+        "lastLoginAt": "2026-07-08T03:37:55.132Z"
       },
       "favorites": {},
       "mistakes": {},
@@ -2991,7 +3072,7 @@
               "e5d9f6ee1183"
             ],
             "index": 248,
-            "updatedAt": "2026-07-08T03:28:42.527Z"
+            "updatedAt": "2026-07-08T03:39:37.693Z"
           }
         }
       },
