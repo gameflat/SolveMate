@@ -671,8 +671,8 @@ export function App() {
   }
 
   async function resetServerStats() {
-    if (!confirm("确定清空当前账号的刷题记录、错题和收藏吗？")) return;
     setUserState(await authJson("/api/me/reset", { method: "POST" }));
+    setStatus("账号练习记录已清空。");
   }
 
   if (authenticated === "loading") return <div className="loading">正在加载...</div>;
@@ -771,7 +771,7 @@ export function App() {
       </aside>
 
       <section className="workspace">
-        <header className={activeView === "practice" ? "topbar practice-topbar" : "topbar"}>
+        <header key={`topbar-${activeView}-${practiceMode}`} className={activeView === "practice" ? "topbar practice-topbar" : "topbar"}>
           <div className="top-context" aria-label="当前状态">
             {topbarStats.map((item) => (
               <span key={item}>{item}</span>
@@ -847,7 +847,7 @@ export function App() {
               typeFilter={typeFilter}
               onOpen={() => setQuickBrowserOpen(true)}
             />
-            <section className={["question-panel", visibleResult ? "answered" : "", visibleResult?.correct ? "answered-correct" : visibleResult ? "answered-wrong" : ""].filter(Boolean).join(" ")}>
+            <section key={`${activeBankId}-${current.id}`} className={["question-panel", visibleResult ? "answered" : "", visibleResult?.correct ? "answered-correct" : visibleResult ? "answered-wrong" : ""].filter(Boolean).join(" ")}>
               <div className="question-card-head">
                 <div className="question-meta">
                   <span>{current.rawType}</span>
@@ -990,6 +990,7 @@ export function App() {
             title="错题记录"
             questions={visibleMistakes}
             empty="当前题库还没有错题记录。"
+            emptyDescription="答错的题目会自动收录在这里，方便集中复盘。"
             onChoose={chooseQuestion}
             state={userState}
             currentId={current.id}
@@ -1006,6 +1007,7 @@ export function App() {
             title="收藏题目"
             questions={favoriteQuestions}
             empty="当前题库还没有收藏题目。"
+            emptyDescription="在练习时点亮题目右上角的星标，即可随时回来查看。"
             onChoose={chooseQuestion}
             state={userState}
             currentId={current.id}
@@ -1077,9 +1079,6 @@ function FeedPage() {
           ))}
         </div>
       )}
-
-      <div className="warm-glow one" aria-hidden="true" />
-      <div className="warm-glow two" aria-hidden="true" />
 
       <div className="feed-center">
         <div className="pleading-stickman" aria-label="祈求投食的可爱火柴人">
@@ -1415,9 +1414,12 @@ function StatsView({
   averageSeconds: number;
   calendarMonth: string;
   onCalendarMonth: (month: string) => void;
-  onReset: () => void;
+  onReset: () => Promise<void>;
   onChoose: (id: string) => void;
 }) {
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState("");
   const today = state.stats.daily[chinaDateKey()] || { attempts: 0, correct: 0, totalSeconds: 0 };
   const month = state.stats.monthly[chinaMonthKey()] || { attempts: 0, correct: 0, totalSeconds: 0 };
   const practicedCount = questions.filter((question) => (state.stats.byQuestion[question.id]?.attempts || 0) > 0).length;
@@ -1427,6 +1429,19 @@ function StatsView({
     .filter((item) => item.question)
     .sort((a, b) => b.stat.attempts - a.stat.attempts)
     .slice(0, 10);
+
+  async function confirmReset() {
+    setResetting(true);
+    setResetError("");
+    try {
+      await onReset();
+      setResetOpen(false);
+    } catch (error) {
+      setResetError(error instanceof Error ? error.message : "记录清空失败，请稍后重试。");
+    } finally {
+      setResetting(false);
+    }
+  }
 
   return (
     <section className="dashboard profile-dashboard">
@@ -1466,7 +1481,7 @@ function StatsView({
       <div className="table-panel">
         <div className="table-head">
           <strong>高频练习</strong>
-          <button className="danger" onClick={onReset}>清空账号记录</button>
+          <button className="danger" onClick={() => { setResetError(""); setResetOpen(true); }}>清空账号记录</button>
         </div>
         {practiced.length === 0 ? (
           <p className="empty">还没有作答记录。</p>
@@ -1479,6 +1494,25 @@ function StatsView({
           ))
         )}
       </div>
+
+      {resetOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setResetOpen(false)}>
+          <section className="account-reset-dialog" role="dialog" aria-modal="true" aria-labelledby="reset-account-title">
+            <span className="danger-dialog-icon"><Trash2 size={23} /></span>
+            <div>
+              <h3 id="reset-account-title">清空练习记录？</h3>
+              <p>当前账号的作答统计、错题、收藏与刷题进度都会被清空，此操作无法撤销。</p>
+              {resetError && <p className="reset-error" role="alert">{resetError}</p>}
+            </div>
+            <div className="dialog-actions">
+              <button type="button" className="action" onClick={() => setResetOpen(false)}>取消</button>
+              <button type="button" className="danger-action" disabled={resetting} onClick={() => void confirmReset()}>
+                {resetting ? "正在清空..." : "确认清空"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }
@@ -2091,7 +2125,12 @@ function QuestionBank({
         </div>
         <label className="search-box">
           <Search size={18} />
-          <input value={search} placeholder="搜索题干、答案、题型或编号" onChange={(event) => onSearch(event.target.value)} />
+          <input aria-label="搜索题库" value={search} placeholder="搜索题干、答案、题型或编号" onChange={(event) => onSearch(event.target.value)} />
+          {search && (
+            <button type="button" className="search-clear" onClick={() => onSearch("")} title="清除搜索">
+              <X size={15} />
+            </button>
+          )}
         </label>
         <div className="bank-filter" aria-label="题型筛选">
           {visibleTypeOptions.map((type) => (
@@ -2339,6 +2378,7 @@ function QuestionList({
   title,
   questions,
   empty,
+  emptyDescription = "这里会随着你的练习记录自动更新。",
   onChoose,
   state,
   currentId,
@@ -2351,6 +2391,7 @@ function QuestionList({
   title: string;
   questions: Question[];
   empty: string;
+  emptyDescription?: string;
   onChoose: (id: string) => void;
   state: UserState;
   currentId: string;
@@ -2361,13 +2402,13 @@ function QuestionList({
   onEmptyAction?: () => void;
 }) {
   return (
-    <section className="table-panel">
+    <section className={questions.length === 0 ? "table-panel question-collection-panel is-empty" : "table-panel question-collection-panel"}>
       <div className="table-head">
         <strong>{title}</strong>
         <span>{questions.length} 道</span>
       </div>
       {questions.length === 0 ? (
-        <EmptyState icon={emptyIcon || <Library size={22} />} title={empty} description="这里会随着你的练习记录自动更新。" actionLabel={actionLabel} onAction={onEmptyAction} />
+        <EmptyState icon={emptyIcon || <Library size={22} />} title={empty} description={emptyDescription} actionLabel={actionLabel} onAction={onEmptyAction} />
       ) : (
         <QuestionRows questions={questions} state={state} currentId={currentId} variant={variant} extraMeta={extraMeta} onChoose={onChoose} />
       )}
