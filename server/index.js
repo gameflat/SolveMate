@@ -101,12 +101,41 @@ app.patch("/api/banks/:id", requireAuth, async (req, res, next) => {
     if (!bank) return res.status(404).json({ error: "bank not found" });
     const name = sanitizeText(req.body?.name, 80);
     const label = sanitizeText(req.body?.label, 24);
-    if (name) bank.name = name;
-    if (label) bank.label = label;
+    if (!name) return res.status(400).json({ error: "bank name is required" });
+    bank.name = name;
+    bank.label = label;
     bank.updatedAt = new Date().toISOString();
     writeQuestionBankPayload(payload);
     reloadQuestionBanks();
     res.json({ bank: publicBankMeta(banks.find((item) => item.id === bank.id)) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/banks/:id", requireAuth, async (req, res, next) => {
+  try {
+    const payload = readQuestionBankPayload();
+    const bankIndex = payload.banks.findIndex((item) => item.id === req.params.id);
+    if (bankIndex < 0) return res.status(404).json({ error: "bank not found" });
+    if (payload.banks.length <= 1) return res.status(400).json({ error: "至少需要保留一个题库" });
+    const bank = payload.banks[bankIndex];
+    const backup = await createQuestionBankBackup({
+      type: "pre-delete",
+      username: req.username,
+      bankId: bank.id,
+      bankName: bank.name,
+      questionCount: Array.isArray(bank.questions) ? bank.questions.length : 0,
+    });
+    payload.banks.splice(bankIndex, 1);
+    if (payload.defaultBankId === bank.id) payload.defaultBankId = payload.banks[0].id;
+    writeQuestionBankPayload(payload);
+    reloadQuestionBanks();
+    res.json({
+      defaultBankId: questionBankPayload.defaultBankId,
+      banks: banks.map(publicBankMeta),
+      backup,
+    });
   } catch (error) {
     next(error);
   }

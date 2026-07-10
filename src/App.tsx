@@ -15,6 +15,7 @@ import {
   LogOut,
   Menu,
   MessageSquareText,
+  Pencil,
   RefreshCcw,
   RotateCw,
   Save,
@@ -24,6 +25,7 @@ import {
   Star,
   Target,
   Timer,
+  Trash2,
   Trophy,
   X,
   XCircle,
@@ -395,13 +397,17 @@ export function App() {
   }
 
   async function updateDefaultBank(bankId: string) {
-    const payload = await authJson("/api/banks/default", {
-      method: "POST",
-      body: JSON.stringify({ bankId }),
+    await loadBank(bankId);
+    setStatus("当前题库已切换。");
+  }
+
+  async function deleteQuestionBank(bankId: string) {
+    const payload = await authJson(`/api/banks/${encodeURIComponent(bankId)}`, {
+      method: "DELETE",
     });
     setBanks(payload.banks);
-    await loadBank(bankId);
-    setStatus("默认题库已更新。");
+    if (activeBankId === bankId) await loadBank(payload.defaultBankId);
+    setStatus("题库已删除，删除前的数据已留存备份。");
   }
 
   async function importQuestionBank(request: BankImportRequest) {
@@ -957,6 +963,7 @@ export function App() {
             onSaveMeta={updateBankMeta}
             onSetDefault={updateDefaultBank}
             onImport={importQuestionBank}
+            onDelete={deleteQuestionBank}
             onOpenBank={(bankId) => {
               void loadBank(bankId);
               setActiveView("bank");
@@ -1677,6 +1684,7 @@ function BankManager({
   onSaveMeta,
   onSetDefault,
   onImport,
+  onDelete,
   onOpenBank,
 }: {
   banks: BankMeta[];
@@ -1685,16 +1693,28 @@ function BankManager({
   onSaveMeta: (bankId: string, name: string, label: string) => Promise<void>;
   onSetDefault: (bankId: string) => Promise<void>;
   onImport: (request: BankImportRequest) => Promise<BankImportResult>;
+  onDelete: (bankId: string) => Promise<void>;
   onOpenBank: (bankId: string) => void;
 }) {
   const [drafts, setDrafts] = useState<Record<string, { name: string; label: string }>>({});
-  const [managerView, setManagerView] = useState<"import" | "manage">("import");
+  const [managerView, setManagerView] = useState<"import" | "manage">("manage");
   const [targetMode, setTargetMode] = useState<"new" | "existing">("new");
   const [targetBankId, setTargetBankId] = useState(activeBankId);
   const [bankName, setBankName] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<BankImportResult | null>(null);
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [editingBankId, setEditingBankId] = useState("");
+  const [pendingBankId, setPendingBankId] = useState("");
+  const [deleteBank, setDeleteBank] = useState<BankMeta | null>(null);
+
+  const activeBank = banks.find((bank) => bank.id === activeBankId) || banks[0];
+  const filteredBanks = banks.filter((bank) => {
+    const keyword = search.trim().toLowerCase();
+    return !keyword || `${bank.name} ${bank.label}`.toLowerCase().includes(keyword);
+  });
 
   useEffect(() => {
     setDrafts((old) => {
@@ -1704,7 +1724,9 @@ function BankManager({
       });
       return next;
     });
-    if (!targetBankId && banks[0]) setTargetBankId(banks[0].id);
+    if ((!targetBankId || !banks.some((bank) => bank.id === targetBankId)) && banks[0]) {
+      setTargetBankId(activeBankId || banks[0].id);
+    }
   }, [banks, targetBankId]);
 
   async function submitImport(event: FormEvent) {
@@ -1712,6 +1734,7 @@ function BankManager({
     if (!file) return;
     setBusy(true);
     setResult(null);
+    setError("");
     try {
       const payload = await onImport({
         file,
@@ -1724,138 +1747,299 @@ function BankManager({
       setResult(payload);
       setFile(null);
       setBankName("");
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : "题库导入失败，请检查文件后重试。");
     } finally {
       setBusy(false);
     }
   }
 
+  async function runBankAction(bankId: string, action: () => Promise<void>) {
+    setPendingBankId(bankId);
+    setError("");
+    try {
+      await action();
+    } catch (actionError) {
+      setError(actionError instanceof Error ? actionError.message : "操作失败，请稍后重试。");
+    } finally {
+      setPendingBankId("");
+    }
+  }
+
+  async function saveBank(bank: BankMeta) {
+    const draft = drafts[bank.id] || { name: bank.name, label: bank.label };
+    if (!draft.name.trim()) {
+      setError("题库名称不能为空。");
+      return;
+    }
+    await runBankAction(bank.id, async () => {
+      await onSaveMeta(bank.id, draft.name.trim(), draft.label.trim());
+      setEditingBankId("");
+    });
+  }
+
+  async function confirmDelete() {
+    if (!deleteBank) return;
+    const bankId = deleteBank.id;
+    await runBankAction(bankId, async () => {
+      await onDelete(bankId);
+      setDeleteBank(null);
+    });
+  }
+
   return (
     <section className="dashboard bank-manager">
-      <div className="manager-mode-switch" aria-label="题库管理功能">
-        <button className={managerView === "import" ? "active" : ""} onClick={() => setManagerView("import")}>
-          <FileUp size={18} />
-          导入题库
-        </button>
-        <button className={managerView === "manage" ? "active" : ""} onClick={() => setManagerView("manage")}>
-          <Library size={18} />
-          题库管理
-        </button>
-      </div>
-
-      {managerView === "import" && (
-      <section className="table-panel manage-panel">
-        <div className="table-head">
-          <strong>导入题库</strong>
-          <span className="muted">AI 清洗{aiConfigured ? "已开启" : "未配置"} · 支持 xlsx、xlsm、csv、docx、txt、md</span>
+      <header className="bank-manager-header">
+        <div>
+          <span className="section-kicker">题库中心</span>
+          <h2>管理题库</h2>
+          <p>选择正在使用的题库，或导入一份新的练习资料。</p>
         </div>
-        <form className="import-form" onSubmit={submitImport}>
-          <label
-            className={file ? "file-upload-control ready" : "file-upload-control"}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={(event) => {
-              event.preventDefault();
-              setFile(event.dataTransfer.files?.[0] || null);
-            }}
-          >
-            <input
-              type="file"
-              accept=".xlsx,.xlsm,.csv,.docx,.txt,.md"
-              onChange={(event) => setFile(event.target.files?.[0] || null)}
-            />
-            <span className="file-upload-icon">
-              <FileUp size={24} />
-            </span>
-            <strong>{file ? file.name : "选择题库文件"}</strong>
-            <em>{file ? `${Math.max(1, Math.round(file.size / 1024))} KB` : "支持拖入文件或点击选择"}</em>
-          </label>
-          <label>
-            <span>导入方式</span>
-            <select value={targetMode} onChange={(event) => setTargetMode(event.target.value === "existing" ? "existing" : "new")}>
-              <option value="new">导入到新题库</option>
-              <option value="existing">导入到现有题库</option>
-            </select>
-          </label>
-          {targetMode === "existing" ? (
-            <label>
-              <span>目标题库</span>
-              <select value={targetBankId} onChange={(event) => setTargetBankId(event.target.value)}>
-                {banks.map((bank) => (
-                  <option key={bank.id} value={bank.id}>
-                    {bank.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <label>
-              <span>新题库名称</span>
-              <input value={bankName} placeholder="例如：7月考试题库" onChange={(event) => setBankName(event.target.value)} />
-            </label>
-          )}
-          <button className="primary import-submit" type="submit" disabled={busy || !file || (targetMode === "new" && !bankName.trim())}>
-            <FileUp size={18} />
-            {busy ? "导入中..." : "开始导入"}
+        <div className="manager-mode-switch" aria-label="题库管理功能">
+          <button type="button" className={managerView === "manage" ? "active" : ""} onClick={() => setManagerView("manage")}>
+            <Library size={18} />
+            我的题库
           </button>
-        </form>
-        {result && (
-          <div className="import-result">
-            <strong>{result.bank.name} · 已导入 {result.importedCount} 道</strong>
-            <span>{result.ai.used ? `AI 已辅助处理 ${result.ai.count} 道` : `AI：${result.ai.reason || "规则解析完成"}`}</span>
-            {result.warnings.length > 0 && <span>解析提示 {result.warnings.length} 条，建议抽查题目。</span>}
+          <button type="button" className={managerView === "import" ? "active" : ""} onClick={() => setManagerView("import")}>
+            <FileUp size={18} />
+            导入题库
+          </button>
+        </div>
+      </header>
+
+      {activeBank && (
+        <section className="current-bank-strip">
+          <span className="current-bank-icon"><Library size={21} /></span>
+          <div>
+            <span>当前题库</span>
+            <strong>{activeBank.name}</strong>
           </div>
-        )}
-      </section>
+          <span className="current-bank-count">{activeBank.questionCount} 题</span>
+          <button type="button" className="action" onClick={() => onOpenBank(activeBank.id)}>
+            浏览题目
+            <ChevronRight size={17} />
+          </button>
+        </section>
+      )}
+
+      {error && (
+        <div className="manager-message error-message" role="alert">
+          <XCircle size={18} />
+          <span>{error}</span>
+          <button type="button" className="icon-only" onClick={() => setError("")} title="关闭提示"><X size={16} /></button>
+        </div>
+      )}
+
+      {result && managerView === "import" && (
+        <div className="manager-message success-message">
+          <CheckCircle2 size={19} />
+          <div>
+            <strong>{result.bank.name} 已导入 {result.importedCount} 道题</strong>
+            <span>{result.ai.used ? `AI 已辅助整理 ${result.ai.count} 道` : "文件结构清晰，已完成规则解析"}</span>
+          </div>
+          <button type="button" className="action" onClick={() => onOpenBank(result.bank.id)}>查看题库</button>
+        </div>
       )}
 
       {managerView === "manage" && (
-      <section className="table-panel manage-panel">
-        <div className="table-head">
-          <strong>题库管理</strong>
-          <span className="muted">在这里选择当前题库、修改题库名称</span>
-        </div>
-        <div className="manage-bank-list">
-          {banks.map((bank) => {
-            const draft = drafts[bank.id] || { name: bank.name, label: bank.label };
-            return (
-              <div key={bank.id} className={bank.id === activeBankId ? "manage-bank-row active" : "manage-bank-row"}>
-                <div className="manage-bank-main">
-                  <strong>{bank.name}</strong>
-                  <span>{bank.questionCount} 题 · {bank.id === activeBankId ? "当前题库" : bank.label || "未设置标签"}</span>
-                </div>
-                <label>
-                  <span>名称</span>
-                  <input
-                    value={draft.name}
-                    onChange={(event) => setDrafts((old) => ({ ...old, [bank.id]: { ...draft, name: event.target.value } }))}
-                  />
-                </label>
-                <label>
-                  <span>标签</span>
-                  <input
-                    value={draft.label}
-                    onChange={(event) => setDrafts((old) => ({ ...old, [bank.id]: { ...draft, label: event.target.value } }))}
-                  />
-                </label>
-                <div className="manage-bank-actions">
-                  <button className="icon-text" onClick={() => void onSaveMeta(bank.id, draft.name, draft.label)}>
-                    <Save size={17} />
-                    保存
-                  </button>
-                  <button className={bank.id === activeBankId ? "chip active" : "chip"} onClick={() => void onSetDefault(bank.id)}>
-                    {bank.id === activeBankId ? "当前" : "设为当前"}
-                  </button>
-                  <button className="action" onClick={() => onOpenBank(bank.id)}>
-                    浏览
-                  </button>
-                </div>
+        <section className="manage-workspace">
+          <div className="manage-toolbar">
+            <label className="bank-search">
+              <Search size={18} />
+              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索题库名称或标签" />
+              {search && <button type="button" className="icon-only" onClick={() => setSearch("")} title="清除搜索"><X size={15} /></button>}
+            </label>
+            <span>共 {banks.length} 个题库</span>
+          </div>
+
+          <div className="manage-bank-list">
+            {filteredBanks.map((bank) => {
+              const draft = drafts[bank.id] || { name: bank.name, label: bank.label };
+              const isActive = bank.id === activeBankId;
+              const isEditing = editingBankId === bank.id;
+              const isPending = pendingBankId === bank.id;
+              return (
+                <article key={bank.id} className={isActive ? "manage-bank-card active" : "manage-bank-card"}>
+                  <div className="manage-bank-card-main">
+                    <div className="bank-card-title">
+                      <span className="bank-card-icon"><Library size={20} /></span>
+                      <div>
+                        <strong title={bank.name}>{bank.name}</strong>
+                        <span>{bank.label || "未设置标签"}</span>
+                      </div>
+                    </div>
+                    <div className="bank-card-meta">
+                      {isActive && <span className="bank-status active"><CheckCircle2 size={14} /> 当前使用</span>}
+                      <span className="bank-status">{bank.questionCount} 题</span>
+                      {bank.updatedAt && <span className="bank-status">更新于 {formatBankDate(bank.updatedAt)}</span>}
+                    </div>
+                  </div>
+
+                  <div className="manage-bank-actions">
+                    {!isActive && (
+                      <button type="button" className="primary compact" disabled={isPending} onClick={() => void runBankAction(bank.id, () => onSetDefault(bank.id))}>
+                        {isPending ? "切换中..." : "设为当前"}
+                      </button>
+                    )}
+                    <button type="button" className="action" onClick={() => onOpenBank(bank.id)}>浏览</button>
+                    <button
+                      type="button"
+                      className={isEditing ? "icon-only active" : "icon-only"}
+                      onClick={() => {
+                        setEditingBankId(isEditing ? "" : bank.id);
+                        setError("");
+                      }}
+                      title="编辑题库信息"
+                    >
+                      <Pencil size={17} />
+                    </button>
+                    <button type="button" className="icon-only danger" disabled={isActive || banks.length <= 1} onClick={() => setDeleteBank(bank)} title={isActive ? "当前题库不能删除" : "删除题库"}>
+                      <Trash2 size={17} />
+                    </button>
+                  </div>
+
+                  {isEditing && (
+                    <div className="bank-edit-panel">
+                      <label>
+                        <span>题库名称</span>
+                        <input value={draft.name} maxLength={80} onChange={(event) => setDrafts((old) => ({ ...old, [bank.id]: { ...draft, name: event.target.value } }))} />
+                      </label>
+                      <label>
+                        <span>简短标签</span>
+                        <input value={draft.label} maxLength={24} placeholder="例如：期末复习" onChange={(event) => setDrafts((old) => ({ ...old, [bank.id]: { ...draft, label: event.target.value } }))} />
+                      </label>
+                      <div className="bank-edit-actions">
+                        <button type="button" className="action" onClick={() => setEditingBankId("")}>取消</button>
+                        <button type="button" className="primary compact" disabled={isPending || !draft.name.trim()} onClick={() => void saveBank(bank)}>
+                          <Save size={16} />
+                          {isPending ? "保存中..." : "保存修改"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
+            {!filteredBanks.length && (
+              <div className="empty-bank-search">
+                <Search size={22} />
+                <strong>没有找到相关题库</strong>
+                <span>换一个关键词试试。</span>
               </div>
-            );
-          })}
+            )}
+          </div>
+        </section>
+      )}
+
+      {managerView === "import" && (
+        <section className="import-workspace">
+          <div className="import-heading">
+            <div>
+              <span className="section-kicker">智能整理</span>
+              <h3>导入一份题库</h3>
+              <p>上传文件并选择保存位置，系统会自动识别题型和答案。</p>
+            </div>
+            <span className={aiConfigured ? "ai-clean-status ready" : "ai-clean-status"}>
+              <Sparkles size={16} />
+              {aiConfigured ? "AI 清洗已开启" : "AI 清洗未配置"}
+            </span>
+          </div>
+
+          <form className="import-form" onSubmit={submitImport}>
+            <div className="import-step">
+              <span className="step-number">1</span>
+              <div><strong>选择题库文件</strong><span>支持 xlsx、xlsm、csv、docx、txt、md，最大 18 MB</span></div>
+            </div>
+            <label
+              className={file ? "file-upload-control ready" : "file-upload-control"}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={(event) => {
+                event.preventDefault();
+                setFile(event.dataTransfer.files?.[0] || null);
+                setResult(null);
+                setError("");
+              }}
+            >
+              <input
+                type="file"
+                accept=".xlsx,.xlsm,.csv,.docx,.txt,.md"
+                onChange={(event) => {
+                  setFile(event.target.files?.[0] || null);
+                  setResult(null);
+                  setError("");
+                }}
+              />
+              <span className="file-upload-icon"><FileUp size={24} /></span>
+              <strong>{file ? file.name : "点击选择，或将文件拖到这里"}</strong>
+              <em>{file ? `${Math.max(1, Math.round(file.size / 1024))} KB · 点击可重新选择` : "上传后会自动检查文件结构"}</em>
+            </label>
+
+            <div className="import-step">
+              <span className="step-number">2</span>
+              <div><strong>选择保存位置</strong><span>可以创建独立题库，也可以补充现有题库</span></div>
+            </div>
+            <div className="import-target-switch">
+              <button type="button" className={targetMode === "new" ? "active" : ""} onClick={() => setTargetMode("new")}>
+                <Library size={18} /><span><strong>创建新题库</strong><em>单独保存，便于管理</em></span>
+              </button>
+              <button type="button" className={targetMode === "existing" ? "active" : ""} onClick={() => setTargetMode("existing")}>
+                <FileUp size={18} /><span><strong>补充现有题库</strong><em>追加到已有内容末尾</em></span>
+              </button>
+            </div>
+
+            {targetMode === "existing" ? (
+              <label className="import-field">
+                <span>选择目标题库</span>
+                <select value={targetBankId} onChange={(event) => setTargetBankId(event.target.value)}>
+                  {banks.map((bank) => <option key={bank.id} value={bank.id}>{bank.name}（{bank.questionCount} 题）</option>)}
+                </select>
+              </label>
+            ) : (
+              <label className="import-field">
+                <span>新题库名称</span>
+                <input value={bankName} maxLength={80} placeholder="例如：7月安全考试题库" onChange={(event) => setBankName(event.target.value)} />
+              </label>
+            )}
+
+            <div className="import-confirm-bar">
+              <div>
+                <strong>{file ? "准备导入" : "请先选择文件"}</strong>
+                <span>{targetMode === "new" ? (bankName.trim() ? `将创建“${bankName.trim()}”` : "填写名称后即可创建新题库") : `将追加到“${banks.find((bank) => bank.id === targetBankId)?.name || "现有题库"}”`}</span>
+              </div>
+              <button className="primary import-submit" type="submit" disabled={busy || !file || (targetMode === "new" && !bankName.trim())}>
+                <FileUp size={18} />
+                {busy ? "正在检查并导入..." : "开始导入"}
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
+
+      {deleteBank && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setDeleteBank(null)}>
+          <section className="bank-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-bank-title">
+            <span className="danger-dialog-icon"><Trash2 size={23} /></span>
+            <div>
+              <h3 id="delete-bank-title">删除“{deleteBank.name}”？</h3>
+              <p>其中的 {deleteBank.questionCount} 道题将从系统中移除。删除前会自动创建服务端备份。</p>
+            </div>
+            <div className="dialog-actions">
+              <button type="button" className="action" onClick={() => setDeleteBank(null)}>取消</button>
+              <button type="button" className="danger-action" disabled={pendingBankId === deleteBank.id} onClick={() => void confirmDelete()}>
+                {pendingBankId === deleteBank.id ? "删除中..." : "确认删除"}
+              </button>
+            </div>
+          </section>
         </div>
-      </section>
       )}
     </section>
   );
+}
+
+function formatBankDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "最近";
+  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(date);
 }
 
 function QuestionBank({
