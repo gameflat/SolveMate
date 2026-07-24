@@ -1586,9 +1586,15 @@ select:focus-visible {
 
 .question-card-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 38px;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: start;
+}
+
+.question-head-actions {
+  display: flex;
+  gap: 7px;
+  align-items: center;
 }
 
 .question-meta {
@@ -1611,6 +1617,35 @@ select:focus-visible {
   background: #fff7d8;
   color: #9a7b12;
   box-shadow: inset 0 0 0 1px rgba(178, 135, 18, 0.24);
+}
+
+.reveal-answer-button {
+  display: inline-grid;
+  width: 34px;
+  min-height: 34px;
+  place-items: center;
+  border: 1px solid #c9d8d2;
+  border-radius: 999px;
+  background: #f2f7f5;
+  color: #315c52;
+}
+
+.reveal-answer-button:hover {
+  border-color: #82aa9e;
+  background: #e5f2ed;
+  color: #174f42;
+  box-shadow: 0 6px 16px rgba(33, 107, 92, 0.14);
+}
+
+.reveal-answer-button.active,
+.reveal-answer-button:disabled {
+  cursor: default;
+  border-color: #216b5c;
+  background: #216b5c;
+  color: #ffffff;
+  opacity: 1;
+  box-shadow: 0 6px 16px rgba(33, 107, 92, 0.2);
+  animation: icon-pop 0.22s ease both;
 }
 
 .favorite-star.active {
@@ -1835,6 +1870,45 @@ select:focus-visible {
   color: #7a2b22;
   background: #f9e8e5;
   animation: result-shake 0.36s ease both;
+}
+
+.revealed-answer {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  margin-top: 12px;
+  padding: 11px 12px;
+  border: 1px solid #cbded7;
+  border-radius: 8px;
+  background: #f0f7f4;
+  color: #24463e;
+  line-height: 1.55;
+  animation: result-pop 0.28s cubic-bezier(0.2, 1.2, 0.35, 1) both;
+}
+
+.revealed-answer-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 8px;
+  background: #dcefe8;
+  color: #216b5c;
+}
+
+.revealed-answer strong {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 13px;
+}
+
+.revealed-answer .markdown-text > :first-child {
+  margin-top: 0;
+}
+
+.revealed-answer .markdown-text > :last-child {
+  margin-bottom: 0;
 }
 
 .side-panel {
@@ -4788,10 +4862,16 @@ select:focus-visible {
   }
 
   .question-card-head {
-    grid-template-columns: minmax(0, 1fr) 34px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 6px;
   }
 
-  .favorite-star {
+  .question-head-actions {
+    gap: 5px;
+  }
+
+  .favorite-star,
+  .reveal-answer-button {
     width: 32px;
     min-height: 32px;
   }
@@ -4829,6 +4909,17 @@ select:focus-visible {
     min-height: 44px;
     padding: 0 8px;
     font-size: 13px;
+  }
+
+  .revealed-answer {
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .revealed-answer-icon {
+    width: 28px;
+    height: 28px;
   }
 
   .practice-nav {

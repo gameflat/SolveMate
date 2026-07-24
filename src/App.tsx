@@ -8,6 +8,7 @@ import {
   ChevronRight,
   CheckCircle2,
   Clock3,
+  Eye,
   FileUp,
   Library,
   ListChecks,
@@ -179,6 +180,7 @@ export function App() {
   const [fillAnswers, setFillAnswers] = useState<string[]>([]);
   const [bankSearch, setBankSearch] = useState("");
   const [result, setResult] = useState<ResultState | null>(null);
+  const [answerRevealed, setAnswerRevealed] = useState(false);
   const [userState, setUserState] = useState<UserState>(EMPTY_STATE);
   const [explanation, setExplanation] = useState("");
   const [explanationLoading, setExplanationLoading] = useState(false);
@@ -209,6 +211,10 @@ export function App() {
   }, [quickBrowserOpen]);
 
   useEffect(() => {
+    if (activeView !== "practice") setAnswerRevealed(false);
+  }, [activeView]);
+
+  useEffect(() => {
     currentIdRef.current = currentId;
     startedAt.current = Date.now();
     setElapsed(0);
@@ -217,6 +223,7 @@ export function App() {
     const nextQuestion = questions.find((question) => question.id === currentId);
     setFillAnswers(Array.from({ length: nextQuestion?.type === "fill" ? getBlankCount(nextQuestion) : 0 }, () => ""));
     setResult(null);
+    setAnswerRevealed(false);
     setExplanation("");
     setChat([]);
     const timer = window.setInterval(() => setElapsed(Math.round((Date.now() - startedAt.current) / 1000)), 1000);
@@ -433,6 +440,7 @@ export function App() {
   }
 
   function chooseQuestion(id: string) {
+    setAnswerRevealed(false);
     setCurrentId(id);
     setActiveView("practice");
   }
@@ -443,12 +451,14 @@ export function App() {
   }
 
   function openView(view: View) {
+    if (view !== "practice") setAnswerRevealed(false);
     setActiveView(view);
     setMobileNavOpen(false);
     setQuickBrowserOpen(false);
   }
 
   function changePracticeMode(mode: PracticeMode) {
+    setAnswerRevealed(false);
     setPracticeMode(mode);
     setActiveView("practice");
     const pool = getPracticePool(questions, typeFilter, mode, userState);
@@ -462,6 +472,7 @@ export function App() {
   }
 
   function changeTypeFilter(type: QuestionType | "all") {
+    setAnswerRevealed(false);
     setTypeFilter(type);
     const pool = getPracticePool(questions, type, practiceMode, userState);
     if (!pool.length) {
@@ -484,6 +495,7 @@ export function App() {
   }
 
   function restartPractice() {
+    setAnswerRevealed(false);
     const pool = getPracticePool(questions, typeFilter, practiceMode, userState);
     if (!pool.length) {
       setStatus(emptyPoolMessage(practiceMode));
@@ -627,6 +639,15 @@ export function App() {
   async function loadExplanation(refresh = false) {
     if (!current) return;
     await loadExplanationForQuestion(current, refresh);
+  }
+
+  function revealAnswer() {
+    if (!current || visibleResult || answerRevealed) return;
+    setAnswerRevealed(true);
+    setExplanation("");
+    setChat([]);
+    setChatInput("");
+    void loadExplanationForQuestion(current);
   }
 
   async function loadExplanationForQuestion(question: Question, refresh = false) {
@@ -858,9 +879,24 @@ export function App() {
                     <Clock3 size={14} /> {formatSeconds(elapsed)}
                   </span>
                 </div>
-                <button className={isFavorite ? "favorite-star active" : "favorite-star"} onClick={toggleFavorite} title={isFavorite ? "取消收藏" : "收藏本题"}>
-                  <Star size={21} fill={isFavorite ? "currentColor" : "none"} />
-                </button>
+                <div className="question-head-actions">
+                  {!visibleResult && (
+                    <button
+                      type="button"
+                      className={answerRevealed ? "reveal-answer-button active" : "reveal-answer-button"}
+                      onClick={revealAnswer}
+                      disabled={answerRevealed}
+                      aria-label={answerRevealed ? "答案已显示" : "显示答案"}
+                      aria-pressed={answerRevealed}
+                      title={answerRevealed ? "答案已显示" : "显示答案"}
+                    >
+                      <Eye size={19} />
+                    </button>
+                  )}
+                  <button className={isFavorite ? "favorite-star active" : "favorite-star"} onClick={toggleFavorite} title={isFavorite ? "取消收藏" : "收藏本题"}>
+                    <Star size={21} fill={isFavorite ? "currentColor" : "none"} />
+                  </button>
+                </div>
               </div>
 
               <h2 className="question-title">{current.prompt}</h2>
@@ -910,6 +946,18 @@ export function App() {
                 </div>
               )}
 
+              {answerRevealed && !visibleResult && (
+                <div className="revealed-answer">
+                  <span className="revealed-answer-icon" aria-hidden="true">
+                    <Eye size={18} />
+                  </span>
+                  <div>
+                    <strong>标准答案</strong>
+                    <MarkdownText content={current.answer} />
+                  </div>
+                </div>
+              )}
+
               <div className="question-actions">
                 <button className="primary" onClick={submitAnswer} disabled={Boolean(visibleResult)}>
                   {answeredFromHistory ? "已完成" : current.type === "short" ? "AI 评分" : "提交答案"}
@@ -925,7 +973,7 @@ export function App() {
                   <ChevronRight size={19} />
                 </button>
               </div>
-              {result && (
+              {(result || answerRevealed) && (
                 <AiPanel
                   explanation={explanation}
                   explanationLoading={explanationLoading}
